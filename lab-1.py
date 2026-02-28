@@ -12,10 +12,21 @@ def main():
         news_file = parser_pravda(site_url)
     elif site_int == 2:
         news_file = parser_zaxid(site_url)
-    else:
-        print("no")
+    
+    words, words_dict = text_filter(news_file)
+    print(f"words: {len(words)}")
+    print(f"unique words: {len(words_dict)}")
 
-    text_filter(news_file)
+    # --- merge news ---
+    print("---combined---")
+    news_pravda = parser_pravda(site_urls[0])
+    news_zaxid = parser_zaxid(site_urls[1])
+    news_combined = combine_news([news_pravda, news_zaxid])
+
+    words, words_dict = text_filter(news_combined)
+    print(f"words: {len(words)}")
+    print(f"unique words: {len(words_dict)}")
+
 
 
 def get_site(site_urls):
@@ -45,19 +56,16 @@ def parser_pravda(site_url):
 
     soup = BeautifulSoup(site_html, "html.parser")
 
-    article_time_tags = soup.find_all("div", class_="article_time")
     article_title_tags = soup.find_all("div", class_="article_title")
+
+    news_txt = "output/news_pravda_raw.txt"
+    with open(news_txt, "w", encoding="utf-8", newline="") as output_file:
+        for article_title_tag in article_title_tags:
+            article_title = article_title_tag.text.strip() +  "\n"
+            output_file.write(article_title)
+            # print(article_title)
     
-    news_csv = "news_pravda_raw.csv"
-    with open(news_csv, "w", newline="",encoding="utf-8") as output_file:
-        writer = csv.DictWriter(output_file, fieldnames=["time", "title"])
-        writer.writeheader()
-        for article_time_tag, article_title_tag in zip(article_time_tags, article_title_tags):
-            article_time = article_time_tag.text.strip()
-            article_title = article_title_tag.text.strip()
-            writer.writerow({"time" : article_time, "title" : article_title})
-    
-    return news_csv
+    return news_txt
 
 
 def parser_zaxid(site_url):
@@ -69,34 +77,26 @@ def parser_zaxid(site_url):
 
     soup = BeautifulSoup(site_html, "html.parser")
     news_title_tags = soup.find_all("div", class_="news-title")
-    news_time_tags = soup.find_all("div", class_="time")
 
-    news_csv = "news_zaxid_raw.csv"
-    with open(news_csv, "w", newline="", encoding="utf-8") as output_file:
-        writer = csv.DictWriter(output_file, ["time", "title"])
-        writer.writeheader()
-        for news_time_tag, news_title_tag in zip(news_time_tags, news_title_tags):
-            news_time = news_time_tag.text.strip()
-            news_title = news_title_tag.text.strip()
-            writer.writerow({"time" : news_time, "title" : news_title})
-
-    return news_csv
+    news_txt = "output/news_zaxid_raw.txt"
+    with open(news_txt, "w", encoding="utf-8", newline="") as output_file:
+        for news_title_tag in news_title_tags:
+            news_title = news_title_tag.text.strip() + " \n"
+            output_file.write(news_title)
+            # print(news_title)
+    return news_txt
 
 
 def text_filter(filename):
-    text = ""
-    with open(filename, encoding="utf-8") as input_file:
-        reader = csv.DictReader(input_file)
-        
-        for row in reader:
-            text += row["title"] + " "
+    with open(filename, "r", encoding="utf-8") as input_file:
+        text = input_file.read()
 
-    chars_to_replace = ["\n", ",", ".", "!", "?", ":", ";", "\"", "–", "-"]
+    chars_to_replace = ["\n", ",", ".", "!", "?", ":", ";", "\"", "–", "-", "«", "»", "\""]
     for ch in chars_to_replace:
         text = text.replace(ch, " ")
     
     file = filename[:-7] + "filtered.txt"
-    with open(file, "w", newline="", encoding="utf-8") as output_file:
+    with open(file, "w", encoding="utf-8", newline="") as output_file:
         output_file.write(text)
 
     text = text.lower()
@@ -109,8 +109,17 @@ def text_filter(filename):
         else:
             words_dict[word] = 1
 
-    print(f"words: {len(words)}")
-    print(f"unique words: {len(words_dict)}")
+    return words, words_dict
+
+
+def combine_news(files):
+    combined_file = "output/all_news_raw.txt"
+    with open(combined_file, "w", encoding="utf-8") as outfile:
+        for file in files:
+            with open(file, "r", encoding="utf-8") as infile:
+                outfile.write(infile.read() + "\n")
+
+    return combined_file
 
 
 if __name__ == "__main__":
