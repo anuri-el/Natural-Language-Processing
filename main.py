@@ -5,53 +5,71 @@ import csv
 from news_urls import pravda_urls, korrespondent_urls
 from site_parsers import parser_pravda, parser_zaxid, parser_korrespondent
 from text_mining import text_filter, build_wordcloud, build_line_plot
-from data_analysis import get_top3_terms, build_term_time_series, analyze_column5, analyze_top3_series, calculate_r2
+from data_analysis import get_top3_terms, build_term_time_series, analyze_freq_sum, analyze_top3_series
 
 
 def main():
     site_urls = ["https://www.pravda.com.ua/news/", "https://zaxid.net/news/", "https://ua.korrespondent.net/all/"]
 
-    # print("-----pick a site-----")
-    # site_int, site_url = get_site(site_urls)
-
-    # if site_int == 1:
-    #     news_file = parser_pravda(site_url)
-    # elif site_int == 2:
-    #     news_file = parser_zaxid(site_url)
-    # elif site_int == 3:
-    #     news_file = parser_korrespondent(site_url)
+    option = int(input("""
+        Choose an option (number):
+            1. Parse a site
+            2. Full analysis
+        """))
     
-    # words, words_dict = text_filter(news_file)
-    # print(f"words: {len(words)}")
-    # print(f"unique words: {len(words_dict)}")
+    if option == 1:
+        site_int, site_url = get_site(site_urls)
 
-
-    # --- merge news ---
-    print("-----combined-----")
-
-    # for pravda_url, korrespondent_url in zip(pravda_urls, korrespondent_urls):
-    #     news_pravda = parser_pravda(pravda_url)
-    #     news_korrespondent = parser_korrespondent(korrespondent_url)
-    #     news_combined = merge_news([news_pravda, news_korrespondent])
-
-    #     words, words_dict = text_filter(news_combined)
-    #     print(f"words: {len(words)}")
-    #     print(f"unique words: {len(words_dict)}")
-    #     # print(words_dict)
-
-    #     freq_to_csv(news_combined, words_dict)
+        if site_int == 1:
+            news_file = parser_pravda(site_url)
+        elif site_int == 2:
+            news_file = parser_zaxid(site_url)
+        elif site_int == 3:
+            news_file = parser_korrespondent(site_url)
+        print(f"Results in {news_file}")
         
-    #     print("-----")
+        words, words_dict = text_filter(news_file)
+        print(f"Words: {len(words)}")
+        print(f"Unique words: {len(words_dict)}")
+
+    elif option == 2:
+        for pravda_url, korrespondent_url in zip(pravda_urls, korrespondent_urls):
+            date = re.search(r"(\d{8})", pravda_url).group(1)
+            news_pravda = parser_pravda(pravda_url)
+            news_korrespondent = parser_korrespondent(korrespondent_url)
+            news_merged = merge_news([news_pravda, news_korrespondent])
+
+            words, words_dict = text_filter(news_merged)
+            print(f"Date: {date[:2]}-{date[2:4]}-{date[4:]}")
+            print(f"Words: {len(words)}")
+            print(f"Unique words: {len(words_dict)}")
+            # print(words_dict)
+
+            freq_csv = freq_to_csv(news_merged, words_dict)
+            print(f"Saved to {freq_csv}")
+            
+            print("----------------")
     
-    output_file = build_monitoring_table()
-    build_wordcloud(output_file)
-    build_line_plot(output_file)
-    top3 = get_top3_terms(output_file)
-    print(top3)
-    term_series = build_term_time_series(output_file)
-    print(term_series)
-    analyze_column5(output_file)
-    analyze_top3_series(term_series)
+        table_csv = build_monitoring_table()
+        print(f"Table was saved to {table_csv}")
+        print("----------------")
+
+        build_wordcloud(table_csv)
+        build_line_plot(table_csv)
+
+        top3_terms, top3_freq = get_top3_terms(table_csv)
+        print("Top-3 terms:")
+        for index, (term, freq) in enumerate(zip(top3_terms, top3_freq)):
+            print(f"{index+1}. {term}, {freq}")
+        print("----------------")
+
+        term_series = build_term_time_series(table_csv)
+        print("Term series:")
+        for term, freq in term_series.items():
+            print(f"{term} : {freq}")
+
+        analyze_freq_sum(table_csv)
+        analyze_top3_series(term_series)
 
 
 def get_site(site_urls):
@@ -76,30 +94,31 @@ def get_site(site_urls):
 def merge_news(files):
     match = re.search(r"\d{8}", files[0])
     date = match.group()
-    combined_file = f"output/news_{date}_raw.txt"
-    with open(combined_file, "w", encoding="utf-8") as outfile:
+    file_merged = f"output/news_{date}_raw.txt"
+    with open(file_merged, "w", encoding="utf-8") as outfile:
         for file in files:
             with open(file, "r", encoding="utf-8") as infile:
                 outfile.write(infile.read() + "\n")
 
-    return combined_file
+    return file_merged
 
 
-def freq_to_csv(newsfile, words_dict):
-    newsfile = os.path.splitext(os.path.basename(newsfile))[0]
-    newsfile = newsfile.split("_")[1]
-    # top5 = words_dict.most_common(5)
+def freq_to_csv(filename, words_dict):
+    filename = os.path.splitext(os.path.basename(filename))[0]
+    date = filename.split("_")[1]
 
     os.makedirs("output", exist_ok=True)
 
-    filename = f"output/frequency_{newsfile}.csv"
-    with open(filename, "w", encoding="utf-8", newline="") as output_file:
+    freq_csv = f"output/frequency_{date}.csv"
+    with open(freq_csv, "w", encoding="utf-8", newline="") as output_file:
         writer = csv.writer(output_file)
         writer.writerow(["word", "frequency"])
 
         sorted_words = sorted(words_dict.items(), key=lambda x: x[1], reverse=True)
         for word, frequency in sorted_words:
             writer.writerow([word, frequency])
+    
+    return freq_csv
 
 
 def get_frequency_files(folder="output"):
@@ -122,8 +141,8 @@ def build_monitoring_table():
     files = get_frequency_files("output")
 
     time_labels = ["Ранок", "Обід", "Вечір"]
-    output_file = "output/monitoring_table.csv"
-    with open(output_file, "w", encoding="utf-8", newline="") as file:
+    table_csv = "output/monitoring_table.csv"
+    with open(table_csv, "w", encoding="utf-8", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["День", "Час", "Топ 5", "Частота", "Сума частот", "Коментар"])
 
@@ -147,7 +166,7 @@ def build_monitoring_table():
             
             day_number += 1
 
-    return output_file
+    return table_csv
 
 
 if __name__ == "__main__":

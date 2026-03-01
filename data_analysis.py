@@ -16,11 +16,13 @@ def get_top3_terms(filename):
             total_freq[word] += freq
         
     top3 = sorted(total_freq.items(), key=lambda x: x[1], reverse=True)[:3]
-    return [word for word, freq in top3]
+    words = [word for word, freq in top3]
+    freq = [freq for word, freq in top3]
+    return words, freq
 
 
 def build_term_time_series(filename):
-    top3_terms = get_top3_terms(filename)
+    top3_terms, top3_freq = get_top3_terms(filename)
 
     term_series = {term: [] for term in top3_terms}
     current_day = None
@@ -75,7 +77,7 @@ def forecast_next_week(a, b, current_length):
     return future_x, forecast
 
 
-def analyze_column5(filename):
+def analyze_freq_sum(filename):
     sums = []
     last_period = None
     with open(filename, "r", encoding="utf-8") as file:
@@ -117,10 +119,3 @@ def analyze_top3_series(term_series):
         plt.legend()
         plt.savefig(f"output/trend_forecast_{term}.png")
         plt.show()
-
-
-def calculate_r2(y, trend):
-    ss_res = np.sum((y - trend)**2)
-    ss_tot = np.sum((y - np.mean(y))**2)
-    r2 = 1 - ss_res/ss_tot
-    return r2
