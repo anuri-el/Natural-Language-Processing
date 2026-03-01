@@ -1,58 +1,15 @@
 import re
 import os
 import csv
-import requests
-from bs4 import BeautifulSoup
-from collections import Counter
+
+from news_urls import pravda_urls, korrespondent_urls
+from site_parsers import parser_pravda, parser_zaxid, parser_korrespondent
+from text_mining import text_filter, remove_stop_words
 
 def main():
-    pravda_urls = ["https://www.pravda.com.ua/news/date_08022026/",
-                   "https://www.pravda.com.ua/news/date_09022026/",
-                   "https://www.pravda.com.ua/news/date_10022026/",
-                   "https://www.pravda.com.ua/news/date_11022026/",
-                   "https://www.pravda.com.ua/news/date_12022026/",
-                   "https://www.pravda.com.ua/news/date_13022026/",
-                   "https://www.pravda.com.ua/news/date_14022026/",
-                   "https://www.pravda.com.ua/news/date_15022026/",
-                   "https://www.pravda.com.ua/news/date_16022026/",
-                   "https://www.pravda.com.ua/news/date_17022026/",
-                   "https://www.pravda.com.ua/news/date_18022026/",
-                   "https://www.pravda.com.ua/news/date_19022026/",
-                   "https://www.pravda.com.ua/news/date_20022026/",
-                   "https://www.pravda.com.ua/news/date_21022026/",
-                   "https://www.pravda.com.ua/news/date_22022026/",
-                   "https://www.pravda.com.ua/news/date_23022026/",
-                   "https://www.pravda.com.ua/news/date_24022026/",
-                   "https://www.pravda.com.ua/news/date_25022026/",
-                   "https://www.pravda.com.ua/news/date_26022026/",
-                   "https://www.pravda.com.ua/news/date_27022026/",
-                   "https://www.pravda.com.ua/news/date_28022026/" ]
-    
-    korrespondent_urls = ["https://ua.korrespondent.net/all/2026/february/8/", 
-                          "https://ua.korrespondent.net/all/2026/february/9/",
-                          "https://ua.korrespondent.net/all/2026/february/10/",
-                          "https://ua.korrespondent.net/all/2026/february/11/",
-                          "https://ua.korrespondent.net/all/2026/february/12/",
-                          "https://ua.korrespondent.net/all/2026/february/13/",
-                          "https://ua.korrespondent.net/all/2026/february/14/",
-                          "https://ua.korrespondent.net/all/2026/february/15/",
-                          "https://ua.korrespondent.net/all/2026/february/16/",
-                          "https://ua.korrespondent.net/all/2026/february/17/",
-                          "https://ua.korrespondent.net/all/2026/february/18/",
-                          "https://ua.korrespondent.net/all/2026/february/19/",
-                          "https://ua.korrespondent.net/all/2026/february/20/",
-                          "https://ua.korrespondent.net/all/2026/february/21/",
-                          "https://ua.korrespondent.net/all/2026/february/22/",
-                          "https://ua.korrespondent.net/all/2026/february/23/",
-                          "https://ua.korrespondent.net/all/2026/february/24/",
-                          "https://ua.korrespondent.net/all/2026/february/25/",
-                          "https://ua.korrespondent.net/all/2026/february/26/",
-                          "https://ua.korrespondent.net/all/2026/february/27/",
-                          "https://ua.korrespondent.net/all/2026/february/28/" ]
-    
     site_urls = ["https://www.pravda.com.ua/news/", "https://zaxid.net/news/", "https://ua.korrespondent.net/all/"]
 
-    # print("---pick a site---")
+    # print("-----pick a site-----")
     # site_int, site_url = get_site(site_urls)
 
     # if site_int == 1:
@@ -68,21 +25,21 @@ def main():
 
 
     # --- merge news ---
-    print("---combined---")
+    print("-----combined-----")
 
     for pravda_url, korrespondent_url in zip(pravda_urls, korrespondent_urls):
         news_pravda = parser_pravda(pravda_url)
         news_korrespondent = parser_korrespondent(korrespondent_url)
-        news_combined = combine_news([news_pravda, news_korrespondent])
+        news_combined = merge_news([news_pravda, news_korrespondent])
 
         words, words_dict = text_filter(news_combined)
         print(f"words: {len(words)}")
         print(f"unique words: {len(words_dict)}")
         # print(words_dict)
 
-        frequency_to_csv(news_combined, words_dict)
+        freq_to_csv(news_combined, words_dict)
         
-        print("---")
+        print("-----")
     
     build_monitoring_table()
 
@@ -106,71 +63,9 @@ def get_site(site_urls):
     return site_int, site_url
 
 
-def parser_pravda(site_url): 
-    response = requests.get(site_url)
-    if response.status_code in range(400, 600):
-        print("something went wrong. choose another site.")
-        return
-    site_html = response.text
-
-    soup = BeautifulSoup(site_html, "html.parser")
-
-    article_title_tags = soup.find_all("div", class_="article_title")
-
-    news_txt = f"output/pravda_{site_url[-9:-1]}_raw.txt"
-    with open(news_txt, "w", encoding="utf-8", newline="") as output_file:
-        for article_title_tag in article_title_tags:
-            article_title = article_title_tag.text.strip() +  "\n"
-            output_file.write(article_title)
-            # print(article_title)
-    
-    return news_txt
-
-
-def parser_zaxid(site_url):
-    response = requests.get(site_url)
-    if response.status_code in range(400, 600):
-        print("oops. choose another site.")
-        return
-    site_html = response.text
-
-    soup = BeautifulSoup(site_html, "html.parser")
-    news_title_tags = soup.find_all("div", class_="news-title")
-
-    news_txt = "output/news_zaxid_raw.txt"
-    with open(news_txt, "w", encoding="utf-8", newline="") as output_file:
-        for news_title_tag in news_title_tags:
-            news_title = news_title_tag.text.strip() + " \n"
-            output_file.write(news_title)
-            # print(news_title)
-    return news_txt
-
-
-def parser_korrespondent(site_url): 
-    response = requests.get(site_url)
-    if response.status_code in range(400, 600):
-        print("something went wrong. choose another site.")
-        return
-    site_html = response.text
-
-    soup = BeautifulSoup(site_html, "html.parser")
-
-    article_title_tags = soup.find_all("div", class_="article__title")
-
-    month = site_url.split("/")[-3]
-    day = site_url.split("/")[-2]
-    news_txt = f"output/korrespondent_{month}_{day}_raw.txt"
-    with open(news_txt, "w", encoding="utf-8", newline="") as output_file:
-        for article_title_tag in article_title_tags:
-            article_title = article_title_tag.text.strip() +  "\n"
-            output_file.write(article_title)
-            # print(article_title)
-    
-    return news_txt
-
-
-def combine_news(files):
-    date = files[0].split("_")[-2]
+def merge_news(files):
+    match = re.search(r"\d{8}", files[0])
+    date = match.group()
     combined_file = f"output/news_{date}_raw.txt"
     with open(combined_file, "w", encoding="utf-8") as outfile:
         for file in files:
@@ -180,36 +75,7 @@ def combine_news(files):
     return combined_file
 
 
-def text_filter(filename):
-    with open(filename, "r", encoding="utf-8") as input_file:
-        text = input_file.read()
-
-    chars_to_replace = ["\n", ",", ".", "!", "?", ":", ";", "\"", "–", "«", "»", "\"", "$"]
-    for ch in chars_to_replace:
-        text = text.replace(ch, " ")
-    text = re.sub(r"\d+", "", text)
-    
-    file = filename[:-7] + "filtered.txt"
-    with open(file, "w", encoding="utf-8", newline="") as output_file:
-        output_file.write(text)
-
-    text = text.lower()
-    words = text.split()
-    words = remove_stop_words(words)
-    words.sort()
-    words_dict = Counter(words)
-
-    return words, words_dict
-
-
-def remove_stop_words(words):
-    stop_words = ["і", "та", "в", "на", "не", "для", "з", "що", "це", "до", "за", "як", "у", "про", "по", "зі", "через", "проти", "під", "є", "де", "якщо", "ще", "чи", "фото", "понад", "від", "має", "після", "й", "щодо"]
-
-    words = [word for word in words if word not in stop_words]
-    return words
-
-
-def frequency_to_csv(newsfile, words_dict):
+def freq_to_csv(newsfile, words_dict):
     newsfile = os.path.splitext(os.path.basename(newsfile))[0]
     newsfile = newsfile.split("_")[1]
     # top5 = words_dict.most_common(5)
@@ -228,15 +94,12 @@ def frequency_to_csv(newsfile, words_dict):
 
 def get_frequency_files(folder="output"):
     files = [file for file in os.listdir(folder) if file.startswith("frequency_")]
-
     files.sort(key=lambda x: re.search(r"\d{8}", x).group())
-
     return files
 
-# iffy
+
 def load_frequency_files(filepath):
     freq_dict = {}
-
     with open(filepath, "r", encoding="utf-8") as file:
         reader = csv.DictReader(file)
         for row in reader:
@@ -247,16 +110,14 @@ def load_frequency_files(filepath):
 
 def build_monitoring_table():
     files = get_frequency_files("output")
-    
+
     time_labels = ["Ранок", "Обід", "Вечір"]
-    
     output_file = "output/monitoring_table.csv"
     with open(output_file, "w", encoding="utf-8", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["День", "Час", "Топ 5", "Частота", "Сума частот", "Коментар"])
 
         day_number = 1
-
         for i in range(0, len(files), 3):
             day_files = files[i:i+3]
 
@@ -264,9 +125,8 @@ def build_monitoring_table():
                 filepath = os.path.join("output", filename)
 
                 freq_dict = load_frequency_files(filepath)
-                counter = Counter(freq_dict)
 
-                top5 = counter.most_common(5)
+                top5 = sorted(freq_dict.items(), key=lambda x: x[1], reverse=True)[:5]
                 total_sum = sum(freq for word, freq in top5)
 
                 date_raw = re.search(r"\d{8}", filename).group()
@@ -276,8 +136,6 @@ def build_monitoring_table():
                     writer.writerow([f"{day_number} ({date_str})", time_labels[index], word, freq, total_sum, ""])
             
             day_number += 1
-
-
 
 
 if __name__ == "__main__":
