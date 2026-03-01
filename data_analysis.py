@@ -1,4 +1,6 @@
 import csv
+import numpy as np
+import matplotlib.pyplot as plt
 from collections import defaultdict
 
 
@@ -49,3 +51,54 @@ def build_term_time_series(filename):
             term_series[term].append(daily_sum[term])
     
     return term_series
+
+
+def least_squares_trend(y_values):
+    n = len(y_values)
+    x = np.arange(1, n+1)
+
+    sum_x = np.sum(x)
+    sum_y = np.sum(y_values)
+    sum_xy = np.sum(x * y_values)
+    sum_x2 = np.sum(x**2)
+
+    a = (n*sum_xy - sum_x*sum_y) / (n*sum_x2 - sum_x**2)
+    b = (sum_y - a*sum_x) / n
+    trend = a*x + b
+
+    return a, b, trend
+
+
+def forecast_next_week(a, b, current_length):
+    future_x = np.arange(current_length+1, current_length+8)
+    forecast = a*future_x + b
+    return future_x, forecast
+
+
+def analyze_column5(filename):
+    sums = []
+    last_period = None
+    with open(filename, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            period = row["День"] + "_" + row["Час"]
+            if period != last_period:
+                sums.append(int(row["Сума частот"]))
+                last_period = period
+        
+    y = np.array(sums)
+    a, b, trend = least_squares_trend(y)
+    fx, forecast = forecast_next_week(a, b, len(y))
+    x = np.arange(1, len(y)+1)
+
+    plt.figure()
+    plt.plot(x, y)
+    plt.plot(x, trend, label="trend")
+    plt.plot(fx, forecast, label="forecast")
+    plt.title("Trend and Forecast")
+    plt.legend()
+    plt.savefig("output/trend_forecast.png")
+    plt.show()
+    print("a=", a)
+    print("b=", b)

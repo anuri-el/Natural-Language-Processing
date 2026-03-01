@@ -4,8 +4,8 @@ import csv
 
 from news_urls import pravda_urls, korrespondent_urls
 from site_parsers import parser_pravda, parser_zaxid, parser_korrespondent
-from text_mining import text_filter, remove_stop_words, build_wordcloud, build_line_plot
-from data_analysis import get_top3_terms, build_term_time_series
+from text_mining import text_filter, build_wordcloud, build_line_plot
+from data_analysis import get_top3_terms, build_term_time_series, analyze_column5
 
 
 def main():
@@ -50,6 +50,7 @@ def main():
     print(top3)
     term_series = build_term_time_series(output_file)
     print(term_series)
+    analyze_column5(output_file)
 
 
 def get_site(site_urls):
@@ -144,6 +145,7 @@ def build_monitoring_table():
                     writer.writerow([f"{day_number} ({date_str})", time_labels[index], word, freq, total_sum, ""])
             
             day_number += 1
+
     return output_file
 
 
