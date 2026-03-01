@@ -54,3 +54,32 @@ def build_wordcloud(filename):
     plt.title("Хмара слів")
     plt.savefig("output/wordcloud.png")
     plt.show()
+
+
+def build_line_plot(filename):
+    dates = []
+    sums = []
+
+    with open(filename, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        
+        last_period = None
+        for row in reader:
+            period = row["День"] + "_" + row["Час"]
+
+            if period != last_period:
+                dates.append(period)
+                sums.append(int(row["Сума частот"]))
+                last_period = period
+        
+        plt.figure(figsize=(12,6))
+        plt.plot(dates, sums, marker="o")
+
+        plt.xticks(rotation=45)
+        plt.xlabel("Період моніторингу")
+        plt.ylabel("Сума частот")
+        plt.title("Динаміка суми частот")
+        plt.tight_layout()
+        plt.grid(True)
+        plt.savefig("output/lineplot.png")
+        plt.show()
