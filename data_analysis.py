@@ -100,5 +100,27 @@ def analyze_column5(filename):
     plt.legend()
     plt.savefig("output/trend_forecast.png")
     plt.show()
-    print("a=", a)
-    print("b=", b)
+
+
+def analyze_top3_series(term_series):
+    for term, series in term_series.items():
+        y = np.array(series)
+        a, b, trend = least_squares_trend(y)
+        fx, forecast = forecast_next_week(a, b, len(y))
+        x = np.arange(1, len(y)+1)
+
+        plt.figure()
+        plt.plot(x, y)
+        plt.plot(x, trend, label="trend")
+        plt.plot(fx, forecast, label="forecast")
+        plt.title(f"trend and forecast: {term}")
+        plt.legend()
+        plt.savefig(f"output/trend_forecast_{term}.png")
+        plt.show()
+
+
+def calculate_r2(y, trend):
+    ss_res = np.sum((y - trend)**2)
+    ss_tot = np.sum((y - np.mean(y))**2)
+    r2 = 1 - ss_res/ss_tot
+    return r2

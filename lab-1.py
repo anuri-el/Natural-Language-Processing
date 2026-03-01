@@ -5,7 +5,7 @@ import csv
 from news_urls import pravda_urls, korrespondent_urls
 from site_parsers import parser_pravda, parser_zaxid, parser_korrespondent
 from text_mining import text_filter, build_wordcloud, build_line_plot
-from data_analysis import get_top3_terms, build_term_time_series, analyze_column5
+from data_analysis import get_top3_terms, build_term_time_series, analyze_column5, analyze_top3_series, calculate_r2
 
 
 def main():
@@ -51,6 +51,7 @@ def main():
     term_series = build_term_time_series(output_file)
     print(term_series)
     analyze_column5(output_file)
+    analyze_top3_series(term_series)
 
 
 def get_site(site_urls):
