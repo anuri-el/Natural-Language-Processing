@@ -5,6 +5,8 @@ import csv
 from news_urls import pravda_urls, korrespondent_urls
 from site_parsers import parser_pravda, parser_zaxid, parser_korrespondent
 from text_mining import text_filter, remove_stop_words, build_wordcloud, build_line_plot
+from data_analysis import get_top3_terms, build_term_time_series
+
 
 def main():
     site_urls = ["https://www.pravda.com.ua/news/", "https://zaxid.net/news/", "https://ua.korrespondent.net/all/"]
@@ -44,6 +46,10 @@ def main():
     output_file = build_monitoring_table()
     build_wordcloud(output_file)
     build_line_plot(output_file)
+    top3 = get_top3_terms(output_file)
+    print(top3)
+    term_series = build_term_time_series(output_file)
+    print(term_series)
 
 
 def get_site(site_urls):
