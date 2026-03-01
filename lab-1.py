@@ -1,4 +1,5 @@
 import re
+import os
 import csv
 import requests
 from bs4 import BeautifulSoup
@@ -77,14 +78,13 @@ def main():
         words, words_dict = text_filter(news_combined)
         print(f"words: {len(words)}")
         print(f"unique words: {len(words_dict)}")
-        print(words_dict)
+        # print(words_dict)
 
-
-        top5 = words_dict.most_common(5)
-        print(top5)
-        save_to_csv(words_dict)
+        frequency_to_csv(news_combined, words_dict)
+        
         print("---")
-
+    
+    build_monitoring_table()
 
 
 def get_site(site_urls):
@@ -203,20 +203,82 @@ def text_filter(filename):
 
 
 def remove_stop_words(words):
-    stop_words = ["і", "та", "в", "на", "не", "для", "з", "що", "це", "до", "за", "як", "у", "про", "по", "зі", "через", "проти", "під", "є", "де", "якщо", "ще", "чи", "фото"]
+    stop_words = ["і", "та", "в", "на", "не", "для", "з", "що", "це", "до", "за", "як", "у", "про", "по", "зі", "через", "проти", "під", "є", "де", "якщо", "ще", "чи", "фото", "понад", "від", "має", "після", "й", "щодо"]
 
     words = [word for word in words if word not in stop_words]
     return words
 
 
-def save_to_csv(words_dict):
-    filename = "output/frequency.csv"
+def frequency_to_csv(newsfile, words_dict):
+    newsfile = os.path.splitext(os.path.basename(newsfile))[0]
+    newsfile = newsfile.split("_")[1]
+    # top5 = words_dict.most_common(5)
+
+    os.makedirs("output", exist_ok=True)
+
+    filename = f"output/frequency_{newsfile}.csv"
     with open(filename, "w", encoding="utf-8", newline="") as output_file:
         writer = csv.writer(output_file)
         writer.writerow(["word", "frequency"])
 
-        for word, frequency in words_dict.items():
+        sorted_words = sorted(words_dict.items(), key=lambda x: x[1], reverse=True)
+        for word, frequency in sorted_words:
             writer.writerow([word, frequency])
+
+
+def get_frequency_files(folder="output"):
+    files = [file for file in os.listdir(folder) if file.startswith("frequency_")]
+
+    files.sort(key=lambda x: re.search(r"\d{8}", x).group())
+
+    return files
+
+# iffy
+def load_frequency_files(filepath):
+    freq_dict = {}
+
+    with open(filepath, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            freq_dict[row["word"]] = int(row["frequency"])
+    
+    return freq_dict
+
+
+def build_monitoring_table():
+    files = get_frequency_files("output")
+    
+    time_labels = ["Ранок", "Обід", "Вечір"]
+    
+    output_file = "output/monitoring_table.csv"
+    with open(output_file, "w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["День", "Час", "Топ 5", "Частота", "Сума частот", "Коментар"])
+
+        day_number = 1
+
+        for i in range(0, len(files), 3):
+            day_files = files[i:i+3]
+
+            for index, filename in enumerate(day_files):
+                filepath = os.path.join("output", filename)
+
+                freq_dict = load_frequency_files(filepath)
+                counter = Counter(freq_dict)
+
+                top5 = counter.most_common(5)
+                total_sum = sum(freq for word, freq in top5)
+
+                date_raw = re.search(r"\d{8}", filename).group()
+                date_str = f"{date_raw[:2]}.{date_raw[2:4]}.{date_raw[4:]}"
+
+                for word, freq in top5:
+                    writer.writerow([f"{day_number} ({date_str})", time_labels[index], word, freq, total_sum, ""])
+            
+            day_number += 1
+
+
+
 
 if __name__ == "__main__":
     main()
