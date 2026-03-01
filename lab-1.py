@@ -4,7 +4,7 @@ import csv
 
 from news_urls import pravda_urls, korrespondent_urls
 from site_parsers import parser_pravda, parser_zaxid, parser_korrespondent
-from text_mining import text_filter, remove_stop_words
+from text_mining import text_filter, remove_stop_words, build_wordcloud
 
 def main():
     site_urls = ["https://www.pravda.com.ua/news/", "https://zaxid.net/news/", "https://ua.korrespondent.net/all/"]
@@ -27,21 +27,22 @@ def main():
     # --- merge news ---
     print("-----combined-----")
 
-    for pravda_url, korrespondent_url in zip(pravda_urls, korrespondent_urls):
-        news_pravda = parser_pravda(pravda_url)
-        news_korrespondent = parser_korrespondent(korrespondent_url)
-        news_combined = merge_news([news_pravda, news_korrespondent])
+    # for pravda_url, korrespondent_url in zip(pravda_urls, korrespondent_urls):
+    #     news_pravda = parser_pravda(pravda_url)
+    #     news_korrespondent = parser_korrespondent(korrespondent_url)
+    #     news_combined = merge_news([news_pravda, news_korrespondent])
 
-        words, words_dict = text_filter(news_combined)
-        print(f"words: {len(words)}")
-        print(f"unique words: {len(words_dict)}")
-        # print(words_dict)
+    #     words, words_dict = text_filter(news_combined)
+    #     print(f"words: {len(words)}")
+    #     print(f"unique words: {len(words_dict)}")
+    #     # print(words_dict)
 
-        freq_to_csv(news_combined, words_dict)
+    #     freq_to_csv(news_combined, words_dict)
         
-        print("-----")
+    #     print("-----")
     
-    build_monitoring_table()
+    output_file = build_monitoring_table()
+    build_wordcloud(output_file)
 
 
 def get_site(site_urls):
@@ -136,6 +137,7 @@ def build_monitoring_table():
                     writer.writerow([f"{day_number} ({date_str})", time_labels[index], word, freq, total_sum, ""])
             
             day_number += 1
+    return output_file
 
 
 if __name__ == "__main__":

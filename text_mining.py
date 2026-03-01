@@ -1,5 +1,8 @@
 import re
+import csv
+import matplotlib.pyplot as plt
 from collections import Counter
+from wordcloud import WordCloud
 
 def text_filter(filename):
     with open(filename, "r", encoding="utf-8") as input_file:
@@ -28,3 +31,26 @@ def remove_stop_words(words):
 
     words = [word for word in words if word not in stop_words]
     return words
+
+
+def build_wordcloud(filename):
+    freq_dict = {}
+
+    with open(filename, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            word = row["Топ 5"]
+            freq = int(row["Частота"])
+
+            if word in freq_dict:
+                freq_dict[word] += freq
+            else:
+                freq_dict[word] = freq
+
+    wordcloud = WordCloud(width=1000, height=700, background_color="white").generate_from_frequencies(freq_dict)
+    plt.imshow(wordcloud, interpolation="bilinear")
+    plt.axis("off")
+    plt.title("Хмара слів")
+    plt.savefig("output/wordcloud.png")
+    plt.show()
