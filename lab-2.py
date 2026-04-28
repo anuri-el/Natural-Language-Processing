@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import feedparser
 import os
 import csv
+import re
 
 
 SEP = "=" * 67
@@ -25,9 +26,22 @@ def main():
     print("Level 2")
     articles = scrape_all_sources()
 
+    print(f"\n{SEP}")
+    print("Filtering")
+    filtered = filter_articles(articles)
+    headers = list(filtered[0].keys())
+    save_csv(filtered, headers, "l2_filtered_articles.csv")
+
+    print(f"\n{SEP}")
+    print("Normalization")
+    normalized = normalize_articles(filtered)
+    headers = list(normalized[0].keys())
+    save_csv(normalized, headers, "l3_normalized_articles.csv")
+
+
 
 def parse_date(entry):
-    for attr in ('published_parsed', 'updated_parser'):
+    for attr in ('published_parsed', 'updated_parsed'):
         t = getattr(entry, attr, None)
         if t:
             return datetime(*t[:6]).date()
@@ -69,6 +83,34 @@ def scrape_all_sources():
         save_csv(all_articles, headers, "l2_raw_articles.csv")
 
     return all_articles
+
+
+def filter_text(text):
+    text = BeautifulSoup(text, "html.parser").get_text()
+    text = re.sub(r"http\S+|www\S+", "", text)
+    text = re.sub(r"[^a-zA-Z\s\-']", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def filter_articles(articles):
+    filtered = []
+    for a in articles:
+        fc = filter_text(a["text"])
+        filtered.append({**a, "filtered": fc})
+    return filtered
+
+
+def normalize_text(text: str):
+    return text.lower().strip()
+
+
+def normalize_articles(articles):
+    normalized = []
+    for a in articles:
+        n = normalize_text(a["filtered"])
+        normalized.append({**a, "normalized": n})
+    return normalized
 
 
 def save_csv(rows, headers, filename):
