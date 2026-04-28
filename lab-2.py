@@ -2,13 +2,14 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from nltk.tokenize import word_tokenize, sent_tokenize, TweetTokenizer
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer, PorterStemmer, SnowballStemmer
 import nltk
 import feedparser
 import os
 import csv
 import re
 
-for pkg in ['punkt_tab', 'stopwords']:
+for pkg in ['punkt_tab', 'stopwords', 'wordnet']:
     nltk.download(pkg, quiet=True)
 
 
@@ -42,13 +43,13 @@ def main():
     print("Normalization")
     normalized = normalize_articles(filtered)
     headers = list(normalized[0].keys())
-    save_csv(normalized, headers, "l3_normalized_articles.csv")
+    save_csv(normalized, headers, "l2_normalized_articles.csv")
 
     print(f"\n{SEP}")
     print("Tokenization")
     tokenized = tokenize_article(normalized)
     headers = list(tokenized[0].keys())
-    save_csv(tokenized, headers, "l3_tokenized_articles.csv")
+    save_csv(tokenized, headers, "l2_tokenized_articles.csv")
     print(tokenized[0]["tokens_word"])
     print(tokenized[0]["tokens_sentence"])
     print(tokenized[0]["tokens_tweet"])
@@ -59,9 +60,26 @@ def main():
     print("Removing stop words")
     no_stopwords = apply_stopwords(tokenized)
     headers = list(no_stopwords[0].keys())
-    save_csv(no_stopwords, headers, "l3_no_stopwords_articles.csv")
+    save_csv(no_stopwords, headers, "l2_no_stopwords_articles.csv")
 
     print(no_stopwords[0]["tokens_clean"])
+    
+    print(f"\n{SEP}")
+    print("Lemmatization")
+    lemmatized = lemmatize_articles(no_stopwords)
+    headers = list(lemmatized[0].keys())
+    save_csv(lemmatized, headers, "l2_lemmatized_articles.csv")
+
+    print(lemmatized[0]["lemmas"])
+    
+    print(f"\n{SEP}")
+    print("Stemming")
+    stemmed = stem_articles(lemmatized)
+    headers = list(stemmed[0].keys())
+    save_csv(stemmed, headers, "l2_stemmed_articles.csv")
+
+    print(stemmed[0]["stems_porter"])
+    print(stemmed[0]["stems_snowball"])
 
 
 
@@ -159,6 +177,24 @@ def remove_stopwords(tokens):
 def apply_stopwords(articles):
     for a in articles:
         a["tokens_clean"] = remove_stopwords(a["tokens_word"])
+    return articles
+
+
+lemmatizer = WordNetLemmatizer()
+
+def lemmatize_articles(articles):
+    for a in articles:
+        a["lemmas"] = [lemmatizer.lemmatize(t) for t in a["tokens_clean"]]
+    return articles
+
+
+porter = PorterStemmer()
+snowball = SnowballStemmer("english")
+
+def stem_articles(articles):
+    for a in articles:
+        a["stems_porter"] = [porter.stem(t) for t in a["tokens_clean"]]
+        a["stems_snowball"] = [snowball.stem(t) for t in a["tokens_clean"]]
     return articles
 
 
