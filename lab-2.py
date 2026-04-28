@@ -1,9 +1,15 @@
 from datetime import datetime
 from bs4 import BeautifulSoup
+from nltk.tokenize import word_tokenize, sent_tokenize, TweetTokenizer
+from nltk.corpus import stopwords
+import nltk
 import feedparser
 import os
 import csv
 import re
+
+for pkg in ['punkt_tab', 'stopwords']:
+    nltk.download(pkg, quiet=True)
 
 
 SEP = "=" * 67
@@ -37,6 +43,25 @@ def main():
     normalized = normalize_articles(filtered)
     headers = list(normalized[0].keys())
     save_csv(normalized, headers, "l3_normalized_articles.csv")
+
+    print(f"\n{SEP}")
+    print("Tokenization")
+    tokenized = tokenize_article(normalized)
+    headers = list(tokenized[0].keys())
+    save_csv(tokenized, headers, "l3_tokenized_articles.csv")
+    print(tokenized[0]["tokens_word"])
+    print(tokenized[0]["tokens_sentence"])
+    print(tokenized[0]["tokens_tweet"])
+
+    
+    
+    print(f"\n{SEP}")
+    print("Removing stop words")
+    no_stopwords = apply_stopwords(tokenized)
+    headers = list(no_stopwords[0].keys())
+    save_csv(no_stopwords, headers, "l3_no_stopwords_articles.csv")
+
+    print(no_stopwords[0]["tokens_clean"])
 
 
 
@@ -111,6 +136,30 @@ def normalize_articles(articles):
         n = normalize_text(a["filtered"])
         normalized.append({**a, "normalized": n})
     return normalized
+
+
+tweet_tok = TweetTokenizer(preserve_case=False, strip_handles=True)
+
+def tokenize_article(articles):
+    for a in articles:
+        text = a["normalized"]
+        a["tokens_word"] = word_tokenize(text)
+        a["tokens_sentence"] = sent_tokenize(a["filtered"])
+        a["tokens_tweet"] = tweet_tok.tokenize(text)
+    
+    return articles
+
+
+STOP_WORDS = set(stopwords.words("english"))
+
+def remove_stopwords(tokens):
+    return [t for t in tokens if t.isalpha() and t not in STOP_WORDS and len(t) > 2]
+
+
+def apply_stopwords(articles):
+    for a in articles:
+        a["tokens_clean"] = remove_stopwords(a["tokens_word"])
+    return articles
 
 
 def save_csv(rows, headers, filename):
