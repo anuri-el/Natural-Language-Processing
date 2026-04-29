@@ -4,28 +4,34 @@ from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize, sent_tokenize, TweetTokenizer
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer, PorterStemmer, SnowballStemmer
+from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 import numpy as np
 import nltk
-import feedparser
 import os
 import csv
 import re
 import json
+import requests
 
 for pkg in ['punkt_tab', 'stopwords', 'wordnet']:
     nltk.download(pkg, quiet=True)
-
 
 SEP = "=" * 67
 
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+load_dotenv()
+API_KEY = os.environ.get("NEWS_API_KEY")
+
+
 SOURCES = {
-    "BBC": "http://feeds.bbci.co.uk/news/rss.xml",
-    "New York Times": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-    "The Guardian": "https://www.theguardian.com/world/rss",
+    "bbc-news": "BBC News",
+    "cnn": "CNN",
+    "associated-press": "Associated Press",
+    "cbs-news": "CBS News",
+    "al-jazeera-english": "Al Jazeera English",
 }
 
 DAYS_BACK = 14
@@ -37,43 +43,44 @@ def main():
     print(f"\n{SEP}")
     print("Level 2")
     articles = scrape_all_sources()
+    save_json(articles, "l2_raw_articles.json")
 
     print(f"\n{SEP}")
     print("Filtering")
     filtered = filter_articles(articles)
     headers = list(filtered[0].keys())
+    print(filtered[0]["filtered"])
     save_csv(filtered, headers, "l2_filtered_articles.csv")
 
     print(f"\n{SEP}")
     print("Normalization")
     normalized = normalize_articles(filtered)
     headers = list(normalized[0].keys())
+    print(normalized[0]["normalized"])
     save_csv(normalized, headers, "l2_normalized_articles.csv")
 
     print(f"\n{SEP}")
     print("Tokenization")
     tokenized = tokenize_article(normalized)
     headers = list(tokenized[0].keys())
+    print("tokens_word:\n", tokenized[0]["tokens_word"])
+    print("tokens_sentence:\n", tokenized[0]["tokens_sentence"])
+    print("tokens_tweet\n", tokenized[0]["tokens_tweet"])
     save_csv(tokenized, headers, "l2_tokenized_articles.csv")
-    print(tokenized[0]["tokens_word"])
-    print(tokenized[0]["tokens_sentence"])
-    print(tokenized[0]["tokens_tweet"])
 
     print(f"\n{SEP}")
     print("Removing stop words")
     no_stopwords = apply_stopwords(tokenized)
     headers = list(no_stopwords[0].keys())
-    save_csv(no_stopwords, headers, "l2_no_stopwords_articles.csv")
-
     print(no_stopwords[0]["tokens_clean"])
+    save_csv(no_stopwords, headers, "l2_no_stopwords_articles.csv")
     
     print(f"\n{SEP}")
     print("Lemmatization")
     lemmatized = lemmatize_articles(no_stopwords)
     headers = list(lemmatized[0].keys())
-    save_csv(lemmatized, headers, "l2_lemmatized_articles.csv")
-
     print(lemmatized[0]["lemmas"])
+    save_csv(lemmatized, headers, "l2_lemmatized_articles.csv")
     
     print(f"\n{SEP}")
     print("Stemming")
@@ -81,8 +88,8 @@ def main():
     headers = list(stemmed[0].keys())
     save_csv(stemmed, headers, "l2_stemmed_articles.csv")
 
-    print(stemmed[0]["stems_porter"])
-    print(stemmed[0]["stems_snowball"])
+    print("stems_porter\n", stemmed[0]["stems_porter"])
+    print("stems_snowball\n", stemmed[0]["stems_snowball"])
 
     print(f"\n{SEP}")
     print("Top 10")
@@ -110,15 +117,13 @@ def main():
 
     w1_words = {w for w, _ in top_data["by_week"].get("week_1", [])}
     w2_words = {w for w, _ in top_data["by_week"].get("week_2", [])}
-    common   = w1_words & w2_words
+    
     new_in_1 = w1_words - w2_words
     
-    print("common")
-    print(common)
-    
-    print("new_in_1")
+    print("\nnew in week 1:")
     print(new_in_1)
 
+    print(f"\n{SEP}")
     plot_top10(top_data, "l2_top10.png")
     plot_wk1_vs_wk2(top_data, "l2_wk1_vs_wk2.png")
     plot_articles_by_source(articles, "l2_articles_by_source.png")
@@ -133,40 +138,68 @@ def parse_date(entry):
     return TODAY         
 
 
+def fetch_source(source_id, source_label, from_date, to_date):
+    articles = []
+    page = 1
+    while True:
+        params = {
+            "apiKey":   API_KEY,
+            "sources":  source_id,
+            "from":     from_date.isoformat(),
+            "to":       to_date.isoformat(),
+            "language": "en",
+            "sortBy":   "publishedAt",
+            "pageSize": 100,
+            "page":     page,
+        }
+        resp = requests.get("https://newsapi.org/v2/everything", params=params, timeout=15)
+        data = resp.json()
+ 
+        if data.get("status") != "ok":
+            print(f"[err] {source_label}: {data.get('message', 'unknown')}")
+            break
+ 
+        batch = data.get("articles", [])
+        if not batch:
+            break
+ 
+        for art in batch:
+            pub = art.get("publishedAt", "")[:10]
+            title = art.get("title") or ""
+            desc = art.get("description") or ""
+            content = art.get("content") or ""
+            articles.append({
+                "source": source_label,
+                "date": pub,
+                "title": title,
+                "summary": desc,
+                "text": f"{title} {desc} {content}",
+            })
+ 
+        total = data.get("totalResults", 0)
+        retrieved = page * 100
+        print(f" {source_label}: page {page}, retrieved {min(retrieved, total)}/{total}")
+ 
+        if retrieved >= total or retrieved >= 1000:
+            break
+        page += 1
+ 
+    return articles
+
+
 def scrape_all_sources():
+    to_date = TODAY
+    from_date = TODAY - timedelta(days=DAYS_BACK)
+    print(f"Range: {from_date} - {to_date}")
+ 
     all_articles = []
-    for source, url in SOURCES.items():
-        print(f"{source} ({url})")
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries:
-                pub_date = parse_date(entry)
-
-                if (TODAY - pub_date).days > DAYS_BACK:
-                    continue
-
-                title = entry.get("title", "")
-                summary = entry.get("summary", "")
-
-                summary = BeautifulSoup(summary, "html.parser").get_text()
-
-                all_articles.append({
-                    "source":  source,
-                    "date":    str(pub_date),
-                    "title":   title,
-                    "summary": summary,
-                    "text":    title + " " + summary,
-                })
-
-        except Exception as e:
-            print(f"[err] {e}")
-        
-    print(f"Articles_count: {len(all_articles)}")
-
-    if all_articles:
-        headers = ["source", "date", "title", "summary", "text"]
-        save_csv(all_articles, headers, "l2_raw_articles.csv")
-
+    for src_id, src_label in SOURCES.items():
+        print(f"\n{src_label}  (id: {src_id})")
+        arts = fetch_source(src_id, src_label, from_date, to_date)
+        print(f"Articles count: {len(arts)}")
+        all_articles.extend(arts)
+ 
+    print(f"\nAll articles: {len(all_articles)}")
     return all_articles
 
 
@@ -211,9 +244,12 @@ def tokenize_article(articles):
 
 
 STOP_WORDS = set(stopwords.words("english"))
+CUSTOM_STOP_WORDS = {"cnn", "char", "bbc", "news", "latest"}
 
 def remove_stopwords(tokens):
-    return [t for t in tokens if t.isalpha() and t not in STOP_WORDS and len(t) > 2]
+    stop_words = STOP_WORDS.copy()
+    stop_words.update(CUSTOM_STOP_WORDS)
+    return [t for t in tokens if t.isalpha() and t not in stop_words and len(t) > 2]
 
 
 def apply_stopwords(articles):
