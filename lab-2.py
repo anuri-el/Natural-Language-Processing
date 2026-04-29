@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize, sent_tokenize, TweetTokenizer
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer, PorterStemmer, SnowballStemmer
@@ -8,6 +9,7 @@ import feedparser
 import os
 import csv
 import re
+import json
 
 for pkg in ['punkt_tab', 'stopwords', 'wordnet']:
     nltk.download(pkg, quiet=True)
@@ -26,6 +28,7 @@ SOURCES = {
 
 DAYS_BACK = 14
 TODAY = datetime.now().date()
+TOP_N = 10
 
 
 def main():
@@ -54,8 +57,6 @@ def main():
     print(tokenized[0]["tokens_sentence"])
     print(tokenized[0]["tokens_tweet"])
 
-    
-    
     print(f"\n{SEP}")
     print("Removing stop words")
     no_stopwords = apply_stopwords(tokenized)
@@ -81,6 +82,29 @@ def main():
     print(stemmed[0]["stems_porter"])
     print(stemmed[0]["stems_snowball"])
 
+    print(f"\n{SEP}")
+    print("Top 10")
+    result = compute_top_words(stemmed)
+    save_json(result, "l2_top_words.csv")
+
+    print(f"\n{SEP}")
+    print("global_top10:")
+    for rank, (w, c) in enumerate(result["global_top10"], 1):
+        print(f"  {rank:2}. {w:<15} {c} times")
+
+    print(f"\n{SEP}")
+    print("by_source:")
+    for src, words in result["by_source"].items():
+        print(src)
+        for rank, (w, c) in enumerate(words, 1):
+            print(f"  {rank:2}. {w:<15} {c}")
+
+    print(f"\n{SEP}")
+    print("by_week:")
+    for wk in ["week_1", "week_2"]:
+        print(wk)
+        for rank, (w, c) in enumerate(result["by_week"].get(wk, []), 1):
+            print(f"  {rank:2}. {w:<15} {c}")
 
 
 def parse_date(entry):
@@ -198,12 +222,52 @@ def stem_articles(articles):
     return articles
 
 
+def get_week_label(date_str):
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    delta = (TODAY - d).days
+    return "week_1" if delta <= 7 else "week_2"
+
+
+def compute_top_words(articles):
+    global_counter = Counter()
+    for a in articles:
+        global_counter.update(a["lemmas"])
+    top10_global = global_counter.most_common(TOP_N)
+
+    by_source = defaultdict(Counter)
+    for a in articles:
+        by_source[a["source"]].update(a["lemmas"])
+    top_by_source = {s: c.most_common(TOP_N) for s, c in by_source.items()}
+
+    by_week = defaultdict(Counter)
+    for a in articles:
+        wk = get_week_label(a["date"])
+        by_week[wk].update(a["lemmas"])
+    top_by_week = {w: c.most_common(TOP_N) for w, c in by_week.items()}
+
+    result = {
+        "global_top10": top10_global,
+        "by_source": top_by_source,
+        "by_week": top_by_week,
+        "analysis_period": f"{TODAY - timedelta(DAYS_BACK)} - {TODAY}",
+    }
+    
+    return result
+
+
 def save_csv(rows, headers, filename):
     path = os.path.join(OUTPUT_DIR, filename)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
+    print(f"{filename} saved to: {path}")
+
+
+def save_json(data, filename):
+    path = os.path.join(OUTPUT_DIR, filename)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
     print(f"{filename} saved to: {path}")
 
 
