@@ -4,6 +4,8 @@ from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize, sent_tokenize, TweetTokenizer
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer, PorterStemmer, SnowballStemmer
+import matplotlib.pyplot as plt
+import numpy as np
 import nltk
 import feedparser
 import os
@@ -84,27 +86,43 @@ def main():
 
     print(f"\n{SEP}")
     print("Top 10")
-    result = compute_top_words(stemmed)
-    save_json(result, "l2_top_words.csv")
+    top_data = compute_top_words(stemmed)
+    save_json(top_data, "l2_top_words.csv")
 
     print(f"\n{SEP}")
     print("global_top10:")
-    for rank, (w, c) in enumerate(result["global_top10"], 1):
-        print(f"  {rank:2}. {w:<15} {c} times")
+    for rank, (w, c) in enumerate(top_data["global_top10"], 1):
+        print(f"  {rank:2}. {w:<15} {c}")
 
     print(f"\n{SEP}")
     print("by_source:")
-    for src, words in result["by_source"].items():
-        print(src)
+    for src, words in top_data["by_source"].items():
+        print(f"\n{src}")
         for rank, (w, c) in enumerate(words, 1):
             print(f"  {rank:2}. {w:<15} {c}")
 
     print(f"\n{SEP}")
     print("by_week:")
     for wk in ["week_1", "week_2"]:
-        print(wk)
-        for rank, (w, c) in enumerate(result["by_week"].get(wk, []), 1):
+        print(f"\n{wk}")
+        for rank, (w, c) in enumerate(top_data["by_week"].get(wk, []), 1):
             print(f"  {rank:2}. {w:<15} {c}")
+
+    w1_words = {w for w, _ in top_data["by_week"].get("week_1", [])}
+    w2_words = {w for w, _ in top_data["by_week"].get("week_2", [])}
+    common   = w1_words & w2_words
+    new_in_1 = w1_words - w2_words
+    
+    print("common")
+    print(common)
+    
+    print("new_in_1")
+    print(new_in_1)
+
+    plot_top10(top_data, "l2_top10.png")
+    plot_wk1_vs_wk2(top_data, "l2_wk1_vs_wk2.png")
+    plot_articles_by_source(articles, "l2_articles_by_source.png")
+    plot_articles_by_date(articles, "l2_articles_by_date.png")
 
 
 def parse_date(entry):
@@ -253,6 +271,86 @@ def compute_top_words(articles):
     }
     
     return result
+
+
+def plot_top10(top_data, filename):
+    words, counts = zip(*top_data["global_top10"])
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.barh(list(reversed(words)), list(reversed(counts)))
+
+    for bar, cnt in zip(bars, list(reversed(counts))):
+        ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height()/2, str(cnt), va='center', fontsize=10)
+    
+    title = "Top-10 words"
+    ax.set_title(title, fontsize=14)
+    ax.set_xlabel("frequency", fontsize=12)
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, filename)
+    plt.savefig(path)
+    plt.show()
+    print(f"{title} saved to: {path}")
+
+
+def plot_wk1_vs_wk2(top_data, filename):
+    w1 = dict(top_data["by_week"].get("week_1", []))
+    w2 = dict(top_data["by_week"].get("week_2", []))
+    all_keys = sorted(set(list(w1.keys())[:8] + list(w2.keys())[:8]))[:12]
+    x = np.arange(len(all_keys))
+    width = 0.38
+
+    fig, ax = plt.subplots(figsize=(13, 6))
+    ax.bar(x - width/2, [w1.get(k, 0) for k in all_keys], width, label="week_1", alpha=0.85)
+    ax.bar(x + width/2, [w2.get(k, 0) for k in all_keys], width, label="week_2", alpha=0.85)
+    
+    title = "Week 1 vs Week 2"
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xticklabels(all_keys, rotation=35, ha="right", fontsize=10)
+    ax.set_xticks(x)
+    ax.set_ylabel("Frequency")
+    ax.legend()
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, filename)
+    plt.savefig(path)
+    plt.show()
+    print(f"{title} saved to: {path}")
+
+
+def plot_articles_by_source(articles, filename):
+    src_counts = Counter(a["source"] for a in articles)
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.pie(src_counts.values(), labels=src_counts.keys(), autopct="%1.1f%%", startangle=140)
+    
+    title = "Articles by source"
+    ax.set_title(title, fontsize=13)
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, filename)
+    plt.savefig(path)
+    plt.show()
+    print(f"{title} saved to: {path}")
+
+
+def plot_articles_by_date(articles, filename):
+    date_counts = Counter(a["date"] for a in articles)
+    dates  = sorted(date_counts.keys())
+    values = [date_counts[d] for d in dates]
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.fill_between(dates, values, alpha=0.4)
+    ax.plot(dates, values, "o-", linewidth=2, markersize=5)
+
+    title = "Articles by date"
+    ax.set_title(title, fontsize=13)
+    ax.set_ylabel("Amount")
+    plt.xticks(rotation=35, ha="right", fontsize=8)
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, filename)
+    plt.savefig(path)
+    plt.show()
+    print(f"{title} saved to: {path}")
 
 
 def save_csv(rows, headers, filename):

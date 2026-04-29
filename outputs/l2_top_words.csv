@@ -9,74 +9,74 @@
       45
     ],
     [
-      "trump",
-      37
-    ],
-    [
       "iran",
-      36
+      35
     ],
     [
-      "say",
-      31
+      "trump",
+      32
     ],
     [
       "said",
       29
     ],
     [
-      "news",
-      28
-    ],
-    [
       "state",
       26
     ],
     [
+      "say",
+      25
+    ],
+    [
       "war",
+      24
+    ],
+    [
+      "new",
       23
     ],
     [
-      "people",
+      "news",
       22
     ]
   ],
   "by_source": {
     "BBC": [
       [
-        "white",
-        8
-      ],
-      [
-        "house",
-        8
-      ],
-      [
-        "king",
-        7
-      ],
-      [
-        "say",
-        7
-      ],
-      [
         "state",
         7
       ],
       [
-        "trump",
-        7
-      ],
-      [
-        "former",
+        "king",
         6
       ],
       [
-        "congress",
+        "white",
+        6
+      ],
+      [
+        "dinner",
         5
       ],
       [
-        "address",
+        "house",
+        5
+      ],
+      [
+        "say",
+        5
+      ],
+      [
+        "captain",
+        5
+      ],
+      [
+        "woman",
+        4
+      ],
+      [
+        "former",
         4
       ],
       [
@@ -87,18 +87,22 @@
     "New York Times": [
       [
         "iran",
-        20
+        16
       ],
       [
         "war",
-        15
+        13
       ],
       [
         "say",
-        11
+        10
       ],
       [
-        "military",
+        "oil",
+        8
+      ],
+      [
+        "united",
         8
       ],
       [
@@ -106,23 +110,19 @@
         8
       ],
       [
-        "government",
+        "american",
         7
       ],
       [
-        "president",
-        7
-      ],
-      [
-        "united",
-        7
-      ],
-      [
-        "strike",
+        "trump",
         7
       ],
       [
         "said",
+        7
+      ],
+      [
+        "two",
         7
       ]
     ],
@@ -136,36 +136,36 @@
         45
       ],
       [
-        "news",
-        26
-      ],
-      [
         "trump",
-        24
+        23
       ],
       [
         "said",
-        21
+        20
+      ],
+      [
+        "news",
+        20
       ],
       [
         "iran",
-        15
+        17
       ],
       [
         "official",
-        15
-      ],
-      [
-        "oil",
         14
       ],
       [
-        "people",
+        "new",
         14
       ],
       [
-        "say",
+        "state",
         13
+      ],
+      [
+        "year",
+        12
       ]
     ]
   },
@@ -180,35 +180,35 @@
         45
       ],
       [
-        "trump",
-        37
-      ],
-      [
         "iran",
-        36
+        35
       ],
       [
-        "say",
-        31
+        "trump",
+        32
       ],
       [
         "said",
         29
       ],
       [
-        "news",
-        28
-      ],
-      [
         "state",
         26
       ],
       [
+        "say",
+        25
+      ],
+      [
         "war",
+        24
+      ],
+      [
+        "new",
         23
       ],
       [
-        "people",
+        "news",
         22
       ]
     ]
