@@ -1,4 +1,5 @@
 import os
+import csv
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -7,14 +8,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+RAW_DATA = "./outputs/l3_topics.csv"
+TEST_DATA = "./outputs/l3_test_data.csv"
+
 
 def main():
 
-    df = pd.read_csv("./outputs/l3_topics.csv")
+    df = pd.read_csv(RAW_DATA)
 
     TOPIC_NAMES = df["topic"].unique().tolist()
 
-    descriptions = df["description"].tolist()
     TOPIC_DOCS = {}
     for topic in TOPIC_NAMES:
         topic_descriptions = df[df["topic"] == topic]["description"].tolist()
@@ -38,6 +41,90 @@ def main():
                 bar = "=" * int(s * 10)
                 print(f"{t:<22} {s:.4f} {bar}")
             print(f"Consensus: {pred['consensus']}")
+    
+    results = []
+    correct_tfidf = correct_bow = correct_consensus = 0
+
+    test_samples = []
+    with open(TEST_DATA, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for idx, row in enumerate(reader):
+            test_samples.append({
+                "id": idx,
+                "text": row["description"].strip(),
+                "expected": row["topic"].strip()
+            })
+    
+    n = len(test_samples)
+
+    for sample in test_samples:
+        pred = classify(sample["text"], TOPIC_DOCS, TOPIC_NAMES)
+        exp = sample["expected"]
+        
+        ok_tfidf = pred["TF-IDF"]["predicted"] == exp
+        ok_bow = pred["BoW"]["predicted"] == exp
+        ok_consensus = pred["consensus"] == exp
+        
+        correct_tfidf += ok_tfidf
+        correct_bow += ok_bow
+        correct_consensus += ok_consensus
+        
+        results.append({
+            "id": sample["id"],
+            "text": sample["text"][:80] + "…" if len(sample["text"]) > 80 else sample["text"],
+            "expected": exp,
+            "tfidf_pred": pred["TF-IDF"]["predicted"],
+            "tfidf_confidence": pred["TF-IDF"]["confidence"],
+            "tfidf_scores": pred["TF-IDF"]["scores"],
+            "bow_pred": pred["BoW"]["predicted"],
+            "bow_confidence": pred["BoW"]["confidence"],
+            "bow_scores": pred["BoW"]["scores"],
+            "consensus": pred["consensus"],
+            "ok_tfidf": ok_tfidf,
+            "ok_bow": ok_bow,
+            "ok_consensus": ok_consensus,
+        })
+
+    accuracy = {
+        "TF-IDF": round(correct_tfidf / n * 100, 1),
+        "BoW": round(correct_bow / n * 100, 1),
+        "Consensus": round(correct_consensus / n * 100, 1),
+        "n": n,
+    }
+
+    output_path = "./outputs/l3_output.csv"
+    with open(output_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        
+        writer.writerow([
+            "id", "text", "expected", 
+            "tfidf_pred", "tfidf_confidence", 
+            "tfidf_радіоелектроніка", "tfidf_програмування", "tfidf_машинобудування",
+            "bow_pred", "bow_confidence",
+            "bow_радіоелектроніка", "bow_програмування", "bow_машинобудування",
+            "consensus", "ok_tfidf", "ok_bow", "ok_consensus"
+        ])
+        
+        for r in results:
+            writer.writerow([
+                r["id"], r["text"], r["expected"],
+                r["tfidf_pred"], r["tfidf_confidence"],
+                r["tfidf_scores"].get("радіоелектроніка", ""),
+                r["tfidf_scores"].get("програмування", ""),
+                r["tfidf_scores"].get("машинобудування", ""),
+                r["bow_pred"], r["bow_confidence"],
+                r["bow_scores"].get("радіоелектроніка", ""),
+                r["bow_scores"].get("програмування", ""),
+                r["bow_scores"].get("машинобудування", ""),
+                r["consensus"], r["ok_tfidf"], r["ok_bow"], r["ok_consensus"]
+            ])
+    
+    print(f"Results saved to: {output_path}")
+    print(f"\nAccuracy Summary:")
+    print(f"  TF-IDF: {accuracy['TF-IDF']:>10}%")
+    print(f"  BoW: {accuracy['BoW']:>12}%")
+    print(f"  Consensus: {accuracy['Consensus']:>6}%")
+    print(f"  Total: {accuracy['n']:>8} samples")
 
 
 def build_vectorizers(topic_docs):
@@ -64,7 +151,7 @@ def classify(text: str, topic_docs, topic_names):
         best_score = scores[best_topic]
 
         THRESHOLD = 0.05
-        UNKNOWN_LABEL = "невідомо / unknown"
+        UNKNOWN_LABEL = "unknown"
 
         label = best_topic if best_score >= THRESHOLD else UNKNOWN_LABEL
         results[method] = {
