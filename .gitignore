@@ -2,3 +2,4 @@ __pycache__
 *.txt
 .env
 to-do.txt
+l4_articles.csv

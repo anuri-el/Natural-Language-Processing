@@ -11,13 +11,15 @@ from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.metrics import silhouette_score, adjusted_rand_score, confusion_matrix
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import TruncatedSVD
+from sklearn.decomposition import TruncatedSVD, LatentDirichletAllocation
 from sklearn.preprocessing import normalize
 from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.optimize import linear_sum_assignment
+
 
 SEP = "=" * 67
 
@@ -26,7 +28,7 @@ API_KEY = os.environ.get("NEWS_API_KEY")
 
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-CSV_FILENAME = "./outputs/l4_articles.csv"
+CSV_FILENAME = "./outputs/l4_articles.json"
 
 DOMAIN_LABELS  = ["economic", "political", "social", "technology", "sports"]
 DOMAIN_COLORS  = ["#2196F3", "#F44336", "#4CAF50", "#FF9800", "#9C27B0"]
@@ -41,80 +43,96 @@ def main():
 
     dist = Counter(article["label"] for article in articles)
     for lbl, cnt in dist.items():
-        print(f"{lbl:<10} - {cnt:3d}")
+        print(f"  {lbl:<11} - {cnt:3d}")
 
     print(f"\n{SEP}")
-    print("level 1")
+    print("Level 1")
 
     sup_cl = supervised_cluster(articles)
     print(f"Silhouette score: {sup_cl["silhouette"]:.4f}")
     print(f"Adjusted Rand Index: {sup_cl["ARI"]:.4f}")
     print(f"Mapping accuracy: {sup_cl["accuracy"]:.4f}")
 
-    print("Per-class accuracy:")
+    print("\nPer-class accuracy:")
     for i, dom in enumerate(DOMAIN_LABELS):
         total = sum(1 for t in sup_cl["labels"] if t == i)
         correct_i = sum(1 for p, t in zip(sup_cl["preds"], sup_cl["labels"]) if t==i and p==i)
         pct = correct_i/total * 100 if total else 0
         bar = "=" * int(pct/10)
-        print(f"{dom:<14} {pct:5.1f}% ({correct_i}/{total}) {bar}")
+        print(f"  {dom:<12} {pct:5.1f}% ({correct_i}/{total}) {bar}")
 
     cm = confusion_matrix(sup_cl["labels"], sup_cl["preds"], labels=list(range(N_CLUSTERS)))
     plot_confusion_matrix(cm, "l4_cm.png")
+    print(cm)
 
-    print("\nTop terms per cluster")
-    print(sup_cl["top_terms"])
+    print("\nTop terms per cluster:")
+    for cat, terms in sup_cl["top_terms"].items():
+        print(f"  {cat}: {terms}")
     
 
-
     print(f"\n{SEP}")
-    print("level 2")
+    print("Level 2")
 
     freq = frequency_analysis(sup_cl)
-    print("\nTF-IDF top terms:")
-    print(freq["tfidf_by_category"])
 
+    print("\nTF-IDF top terms:")
+    for cat, terms in freq["tfidf_by_category"].items():
+        print(f"\n{cat}")
+        for term, val in terms:
+            print(f"{term:>10} - {val:.5f}")
     plot_tfidf_bars(freq["tfidf_by_category"], "l4_tfidf.png")
 
     for w, positions in freq["dispersion_data"].items():
         print(f" {w:<10} - {len(positions):4d} positions")
-
     plot_lexical_dispersion(freq["dispersion_data"], freq["top_terms"], len(sup_cl["article_items"]), "l4_lexical_dispersion.png")
 
-    plot_word_length_dist(freq["lengths"], "l4_word_length_distribution.png")
+    lengths = [len(w) for w in freq["tokens"]]
+    length_freq = Counter(lengths)
+    print(f"\nDistribution by letters:")
+    for l in sorted(length_freq)[:12]:
+        bar = "=" * int(length_freq[l] / max(length_freq.values()) * 10)
+        print(f"{l:2d} letters : {length_freq[l]} {bar}")
+    plot_word_length_dist(lengths, "l4_word_length_distribution.png")
     
     top_bigrams = freq["bigrams"].most_common(20)
+    print(f"\nTop-10 bigrams:")
     for bg, cnt in top_bigrams[:10]:
-        print(f" {' '.join(bg):<28} {cnt:4d}")
-
+        print(f" {' '.join(bg):<20} {cnt:4d}")
     plot_bigrams(top_bigrams, "l4_bigrams.png")
 
 
     print(f"\n{SEP}")
-    print("level 3")
+    print("Level 3")
 
-    results = unsupervised_cluster(sup_cl)
+    unsup_cl = unsupervised_cluster(sup_cl)
 
-    print("KMeans")
-    print(f"Silhouette: {results["KMeans"]["silhouette"]:.4f}   ARI: {results["KMeans"]["ARI"]:.4f}")
-    
-    print("Agglomerative")
-    print(f"Silhouette: {results["Agglomerative"]["silhouette"]:.4f}   ARI: {results["Agglomerative"]["ARI"]:.4f}")
+    print(f"{'Method':<25} {'Silhouette':>12} {'ARI':>8}")
+    methods = [
+        ("KMeans (без каркасу)", unsup_cl["KMeans"]["silhouette"], unsup_cl["KMeans"]["ARI"]),
+        ("Agglomerative (Ward)", unsup_cl["Agglomerative"]["silhouette"], unsup_cl["Agglomerative"]["ARI"]),
+        ("LDA", float("nan"), unsup_cl["LDA"]["ARI"]),
+        ("DBSCAN", unsup_cl["DBSCAN"]["silhouette"], unsup_cl["DBSCAN"]["ARI"]),
+    ]
+    for name, sil, ari in methods:
+        sil_s = f"{sil:.4f}" if not math.isnan(sil) else "  N/A"
+        print(f"{name:<25} {sil_s:>12}  {ari:>7.4f}")
 
-    plot_dendrogram(results["Agglomerative"]["Z"], "l4_dendrogram.png")
-    
-    print("DBSCAN")
-    print(f"Silhouette: {results["DBSCAN"]["silhouette"]:.4f}   ARI: {results["DBSCAN"]["ARI"]:.4f}")
+    for topics in unsup_cl["LDA"]["lda_topics"].items():
+        print(topics)
+
+    plot_dendrogram(unsup_cl["Agglomerative"]["Z"], "l4_dendrogram.png")
+    plot_lda_topics(unsup_cl["LDA"]["lda_topics"], "l4_lda_topics.png")
+    plot_method_metrics(methods, "l4_method_metrics.png")
 
 
-def scrape_newsapi(api_key: str, per_category: int = 15):
+def scrape_newsapi(api_key: str, per_category: int = 100):
     articles = []
     category_map = {
         "economic": "business",
         "social": "health",
         "technology": "technology",
         "sports": "sports",
-        "political": "general",
+        "political": "politics",
     }
 
     for label, cat in category_map.items():
@@ -168,7 +186,7 @@ def load_or_save_articles(articles_file):
         articles = None
     
     if articles is None:
-        articles = scrape_newsapi(API_KEY, per_category=30)
+        articles = scrape_newsapi(API_KEY)
         
         try:
             with open(articles_file, 'w', encoding='utf-8') as f:
@@ -197,7 +215,8 @@ def tokenize_text(text: str):
 
 
 STOP_WORDS = set(stopwords.words("english"))
-CUSTOM_STOP_WORDS = {"cnn", "char", "bbc", "news", "latest", "com", "new", "york", "times", "post"}
+# CUSTOM_STOP_WORDS = {"cnn", "chars", "char", "bbc", "news", "latest", "com", "new", "york", "times", "post", "says"}
+CUSTOM_STOP_WORDS = {"new", "say", "says", "news", "one", "com", "may", "april", "time"}
 
 def remove_stopwords(tokens):
     stop_words = STOP_WORDS.copy()
@@ -253,10 +272,56 @@ def expand_keywords(seed_words, nlp, top_n=10):
     return " ".join(all_keywords)
 
 
-FRAMEWORK = {}
-for category, seeds in SEED_WORDS.items():
-    expanded = expand_keywords(seeds, nlp, top_n=10)
-    FRAMEWORK[category] = expanded
+# FRAMEWORK = {}
+# for category, seeds in SEED_WORDS.items():
+#     expanded = expand_keywords(seeds, nlp, top_n=2)
+#     FRAMEWORK[category] = expanded
+
+FRAMEWORK = {
+    "economic": (
+        "economy finance stock market investment gdp inflation interest rate "
+        "trade deficit surplus budget revenue earnings profit loss fiscal monetary "
+        "unemployment employment recession growth banking currency bond equity dividend "
+        "startup venture capital merger acquisition ipo shareholder commodity oil price "
+        "export import tariff subsidy federal reserve wall street bloomberg nasdaq dow "
+        "consumer spending retail mortgage debt bankruptcy bankruptcy hedge fund"
+    ),
+    "political": (
+        "government election parliament senate congress vote democracy law policy "
+        "president minister prime cabinet diplomat treaty international relations "
+        "republican democrat liberal conservative party politician legislation bill "
+        "amendment constitution court justice supreme ruling executive judicial "
+        "campaign rally debate poll protest sanctions embassy foreign affairs trump "
+        "biden ukraine russia china iran nato military army war conflict ceasefire "
+        "diplomacy sanction embargo administration governor mayor city hall"
+    ),
+    "social": (
+        "health disease cancer study research hospital patient treatment drug medicine "
+        "vaccine pandemic epidemic obesity diabetes heart stroke mental illness surgery "
+        "doctor nurse healthcare education school university student poverty inequality "
+        "welfare housing homelessness crime prison justice race gender climate "
+        "environment pollution emissions disaster flood drought wildfire community "
+        "family children elderly aging population birth death mortality life expectancy "
+        "nutrition diet exercise fitness sleep stress anxiety depression"
+    ),
+    "technology": (
+        "technology artificial intelligence software computer internet cyber security "
+        "machine learning algorithm data cloud computing robot automation smartphone "
+        "app platform startup silicon valley google apple microsoft amazon meta openai "
+        "iphone android gpu chip semiconductor processor quantum blockchain crypto "
+        "social media youtube twitter tiktok streaming video gaming hardware device "
+        "electric vehicle battery solar energy innovation engineering programming code "
+        "developer network bandwidth fiber broadband satellite space launch nasa spacex"
+    ),
+    "sports": (
+        "football soccer basketball tennis olympic championship league player team coach "
+        "match game score goal win loss draw tournament stadium athlete performance "
+        "nfl nba nhl mlb fifa uefa transfer draft trade contract injury season playoffs "
+        "final championship trophy medal record race marathon golf swimming cycling "
+        "boxing wrestling mma combat sport referee umpire penalty foul stadium fans "
+        "pitcher quarterback midfielder defender goalkeeper forward roster standings"
+    ),
+}
 
 
 def supervised_cluster(article_items: list[dict]):
@@ -265,7 +330,7 @@ def supervised_cluster(article_items: list[dict]):
     texts_pp = [preprocess(t) for t in text_raw]
     label_ids = [DOMAIN_LABELS.index(l) if l in DOMAIN_LABELS else 0 for l in labels_str]
 
-    tfidf = TfidfVectorizer(max_features=3000, ngram_range=(1,2), min_df=1, sublinear_tf=True)
+    tfidf = TfidfVectorizer(max_features=3000, ngram_range=(1,1), min_df=2, sublinear_tf=True)
     X = tfidf.fit_transform(texts_pp)
 
     seed_texts = [preprocess(FRAMEWORK[d]) for d in DOMAIN_LABELS]
@@ -274,10 +339,14 @@ def supervised_cluster(article_items: list[dict]):
     km = KMeans(n_clusters=N_CLUSTERS, n_init=10, max_iter=300, random_state=RANDOM_STATE)
     km.fit(X)
 
-    cluster_map = {}
-    for c in range(N_CLUSTERS):
-        sims = cosine_similarity(km.cluster_centers_[c:c+1], seed_vecs)[0]
-        cluster_map[c] = int(np.argmax(sims))
+    # cluster_map = {}
+    # for c in range(N_CLUSTERS):
+    #     sims = cosine_similarity(km.cluster_centers_[c:c+1], seed_vecs)[0]
+    #     cluster_map[c] = int(np.argmax(sims))
+ 
+    sim_matrix = cosine_similarity(km.cluster_centers_, seed_vecs)
+    row_ind, col_ind = linear_sum_assignment(-sim_matrix)
+    cluster_map = {r: c for r, c in zip(row_ind, col_ind)}
     
     preds_raw = km.predict(X)
     preds_mapped = np.array([cluster_map[p] for p in preds_raw])
@@ -339,12 +408,6 @@ def frequency_analysis(sup_cl):
             disp_data[w].extend([i + pos/max(len(toks),1) for pos, t in enumerate(toks) if t == w])
     
 
-    lengths = [len(w) for w in all_tokens]
-    length_freq = Counter(lengths)
-    for l in sorted(length_freq)[:12]:
-        bar = "=" * int(length_freq[l] / max(length_freq.values()) * 10)
-        print(f"{l:2d} letters : {length_freq[l]} {bar}")
-
 
     bigrams = Counter()
     for item in sup_cl["article_items"]:
@@ -357,9 +420,9 @@ def frequency_analysis(sup_cl):
         "tfidf_by_category": cat_tfidf_results,
         "dispersion_data" : disp_data,
         "top_terms" : top8,
-        "lengths": lengths,
-        "word_length_distribution": dict(sorted(length_freq.items())),
         "bigrams": bigrams,
+        "tokens": all_tokens,
+        "unique_tokens": set(all_tokens),
     }
 
 
@@ -396,6 +459,22 @@ def unsupervised_cluster(sup_cl: dict):
     Z = linkage(X_rn[sample_idx], method="ward")
 
 
+    cv = CountVectorizer(max_features=2000, min_df=1, ngram_range=(1,1))
+    X_cv = cv.fit_transform(texts)
+    fn_cv = cv.get_feature_names_out()
+ 
+    lda = LatentDirichletAllocation(n_components=N_CLUSTERS, max_iter=20, random_state=RANDOM_STATE, learning_method="batch")
+    lda.fit(X_cv)
+    lda_labels = lda.transform(X_cv).argmax(axis=1)
+    ari_lda = adjusted_rand_score(y_true, lda_labels)
+ 
+    lda_topics = {}
+    for t_idx, topic in enumerate(lda.components_):
+        order = topic.argsort()[::-1][:8]
+        terms = [fn_cv[i] for i in order]
+        lda_topics[t_idx] = terms
+
+
     db = DBSCAN(eps=0.5, min_samples=2, metric="cosine")
     db_labels = db.fit_predict(X_r)
     n_clusters_db = len(set(db_labels)) - (1 if -1 in db_labels else 0)
@@ -407,11 +486,12 @@ def unsupervised_cluster(sup_cl: dict):
     
     ari_db = adjusted_rand_score(y_true, db_labels)
 
-
+    plot_cluster_comparison(X_rn, y_true, km_labels, agg_labels, lda_labels, db_labels, "l4_cluster_comparison.png")
 
     results = {
         "KMeans": {"silhouette": sil_km,  "ARI": ari_km, "km_cluster_terms": km_cluster_terms},
         "Agglomerative": {"silhouette": sil_agg,  "ARI": ari_agg, "Z": Z},
+        "LDA": {"ARI": ari_lda, "lda_topics": lda_topics},
         "DBSCAN": {"silhouette": None if math.isnan(sil_db) else sil_db, "ARI": ari_db, "n_clusters": n_clusters_db, "n_noise": n_noise},
     }
 
@@ -549,6 +629,91 @@ def plot_dendrogram(Z, filename):
     ax.set_xlabel("Документ (індекс)")
     ax.set_ylabel("Відстань")
     
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_cluster_comparison(X_rn, y_true, km_l, agg_l, lda_l, db_l, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
+
+    svd2 = TruncatedSVD(n_components=2, random_state=RANDOM_STATE)
+    X_2d = svd2.fit_transform(X_rn)
+ 
+    fig, axes = plt.subplots(2, 2, figsize=(13, 10))
+    specs = [
+        (axes[0,0], km_l, "KMeans (unsupervised)"),
+        (axes[0,1], agg_l, "Agglomerative (Ward)"),
+        (axes[1,0], lda_l, "LDA"),
+        (axes[1,1], db_l, "DBSCAN"),
+    ]
+
+    for ax, labels, title in specs:
+        unique = sorted(set(labels))
+        cmap = plt.colormaps.get_cmap("tab10")
+        cmap = cmap.resampled(len(unique))
+
+        for uid in unique:
+            mask = labels == uid
+            color = "#999999" if uid == -1 else cmap(unique.index(uid))
+            lbl = "noise" if uid == -1 else f"Cluster {uid}"
+            ax.scatter(X_2d[mask, 0], X_2d[mask, 1], c=[color], s=30, alpha=0.8, label=lbl)
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        ax.legend(fontsize=7, markerscale=1.2)
+        ax.set_xlabel("SVD-1"); ax.set_ylabel("SVD-2")
+ 
+    title = "Comparison of unsupervised clustering methods"
+    fig.suptitle(title)
+
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_lda_topics(lda_topics: dict, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
+
+    n = len(lda_topics)
+    fig, axes = plt.subplots(1, n, figsize=(4*n, 4))
+    for ax, (t_idx, terms) in zip(axes, lda_topics.items()):
+        freqs = list(range(len(terms), 0, -1))
+        colors = plt.cm.plasma(np.linspace(0.2, 0.85, len(terms)))
+        ax.barh(terms[::-1], freqs[::-1], color=colors[::-1])
+        ax.set_title(f"Тема {t_idx}")
+
+    title = "LDA - топ слова кожної теми"
+    fig.suptitle(title)
+
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+ 
+
+def plot_method_metrics(methods: list, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
+
+    names = [m[0] for m in methods]
+    sils = [m[1] if not math.isnan(m[1]) else 0.0 for m in methods]
+    aris = [m[2] for m in methods]
+ 
+    x = np.arange(len(names))
+    w = 0.35
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.bar(x - w/2, sils, w, label="Silhouette", alpha=0.85)
+    ax.bar(x + w/2, aris, w, label="ARI", alpha=0.85)
+    ax.set_xticks(x)
+    ax.set_xticklabels(names)
+    ax.set_ylim(-0.2, 1.0)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+    ax.set_ylabel("Score")
+    
+    title = "Comparison of unsupervised method metrics"
+    ax.set_title(title)
+    ax.legend()
+
     plt.tight_layout()
     plt.savefig(output_path)
     plt.show()
