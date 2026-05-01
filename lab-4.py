@@ -2,6 +2,7 @@ import os
 import re
 import requests
 import json
+import math
 import spacy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,10 +10,14 @@ from dotenv import load_dotenv
 from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.metrics import silhouette_score, adjusted_rand_score, confusion_matrix
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.decomposition import TruncatedSVD
+from sklearn.preprocessing import normalize
+from scipy.cluster.hierarchy import dendrogram, linkage
 
 SEP = "=" * 67
 
@@ -41,46 +46,65 @@ def main():
     print(f"\n{SEP}")
     print("level 1")
 
-    ctx = supervised_cluster(articles)
-    print(f"Silhouette score: {ctx["sil"]:.4f}")
-    print(f"Adjusted Rand Index: {ctx["ari"]:.4f}")
-    print(f"Mapping accuracy: {ctx["accuracy"]:.4f}")
+    sup_cl = supervised_cluster(articles)
+    print(f"Silhouette score: {sup_cl["silhouette"]:.4f}")
+    print(f"Adjusted Rand Index: {sup_cl["ARI"]:.4f}")
+    print(f"Mapping accuracy: {sup_cl["accuracy"]:.4f}")
 
     print("Per-class accuracy:")
     for i, dom in enumerate(DOMAIN_LABELS):
-        total = sum(1 for t in ctx["labels"] if t == i)
-        correct_i = sum(1 for p, t in zip(ctx["preds"], ctx["labels"]) if t==i and p==i)
+        total = sum(1 for t in sup_cl["labels"] if t == i)
+        correct_i = sum(1 for p, t in zip(sup_cl["preds"], sup_cl["labels"]) if t==i and p==i)
         pct = correct_i/total * 100 if total else 0
         bar = "=" * int(pct/10)
         print(f"{dom:<14} {pct:5.1f}% ({correct_i}/{total}) {bar}")
 
-    cm = confusion_matrix(ctx["labels"], ctx["preds"], labels=list(range(N_CLUSTERS)))
-    plot_confusion_matrix(cm, "./outputs/l4_cm.png")
+    cm = confusion_matrix(sup_cl["labels"], sup_cl["preds"], labels=list(range(N_CLUSTERS)))
+    plot_confusion_matrix(cm, "l4_cm.png")
 
     print("\nTop terms per cluster")
-    print(ctx["top_terms"])
+    print(sup_cl["top_terms"])
     
+
+
     print(f"\n{SEP}")
     print("level 2")
 
-    results = frequency_analysis(ctx)
+    freq = frequency_analysis(sup_cl)
     print("\nTF-IDF top terms:")
-    print(results["tfidf_by_category"])
+    print(freq["tfidf_by_category"])
 
-    plot_tfidf_bars(results["tfidf_by_category"], "./outputs/l4_tfidf.png")
+    plot_tfidf_bars(freq["tfidf_by_category"], "l4_tfidf.png")
 
-    for w, positions in results["dispersion_data"].items():
+    for w, positions in freq["dispersion_data"].items():
         print(f" {w:<10} - {len(positions):4d} positions")
 
-    plot_lexical_dispersion(results["dispersion_data"], results["top_terms"], len(ctx["article_items"]), "./outputs/l4_lexical_dispersion.png")
+    plot_lexical_dispersion(freq["dispersion_data"], freq["top_terms"], len(sup_cl["article_items"]), "l4_lexical_dispersion.png")
 
-    plot_word_length_dist(results["lengths"], "./outputs/l4_word_length_distribution.png")
+    plot_word_length_dist(freq["lengths"], "l4_word_length_distribution.png")
     
-    top_bigrams = results["bigrams"].most_common(20)
+    top_bigrams = freq["bigrams"].most_common(20)
     for bg, cnt in top_bigrams[:10]:
         print(f" {' '.join(bg):<28} {cnt:4d}")
 
-    plot_bigrams(top_bigrams, "./outputs/l4_bigrams.png")
+    plot_bigrams(top_bigrams, "l4_bigrams.png")
+
+
+    print(f"\n{SEP}")
+    print("level 3")
+
+    results = unsupervised_cluster(sup_cl)
+
+    print("KMeans")
+    print(f"Silhouette: {results["KMeans"]["silhouette"]:.4f}   ARI: {results["KMeans"]["ARI"]:.4f}")
+    
+    print("Agglomerative")
+    print(f"Silhouette: {results["Agglomerative"]["silhouette"]:.4f}   ARI: {results["Agglomerative"]["ARI"]:.4f}")
+
+    plot_dendrogram(results["Agglomerative"]["Z"], "l4_dendrogram.png")
+    
+    print("DBSCAN")
+    print(f"Silhouette: {results["DBSCAN"]["silhouette"]:.4f}   ARI: {results["DBSCAN"]["ARI"]:.4f}")
 
 
 def scrape_newsapi(api_key: str, per_category: int = 15):
@@ -173,9 +197,18 @@ def tokenize_text(text: str):
 
 
 STOP_WORDS = set(stopwords.words("english"))
+CUSTOM_STOP_WORDS = {"cnn", "char", "bbc", "news", "latest", "com", "new", "york", "times", "post"}
 
 def remove_stopwords(tokens):
-    return [t for t in tokens if t.isalpha() and t not in STOP_WORDS and len(t) > 2]
+    stop_words = STOP_WORDS.copy()
+    stop_words.update(CUSTOM_STOP_WORDS)
+    return [t for t in tokens if t.isalpha() and t not in stop_words and len(t) > 2]
+
+
+lemmatizer = WordNetLemmatizer()
+
+def lemmatize_text(tokens):
+    return [lemmatizer.lemmatize(t) for t in tokens]
 
 
 def preprocess(text: str):
@@ -183,7 +216,8 @@ def preprocess(text: str):
     text = normalize_text(text)
     tokens = tokenize_text(text)
     tokens = remove_stopwords(tokens)
-    return " ".join(tokens)
+    lemmas = lemmatize_text(tokens)
+    return " ".join(lemmas)
 
 
 def get_tokens(text: str):
@@ -270,8 +304,8 @@ def supervised_cluster(article_items: list[dict]):
             "texts_pp": texts_pp, 
             "texts_raw": text_raw, 
             "accuracy": acc, 
-            "sil": sil, 
-            "ari" : ari, 
+            "silhouette": sil, 
+            "ARI" : ari, 
             "top_terms": top_terms,
             "article_items": article_items}
 
@@ -319,7 +353,6 @@ def frequency_analysis(sup_cl):
             bigrams[(toks[i], toks[i+1])] += 1
     
 
-
     return {
         "tfidf_by_category": cat_tfidf_results,
         "dispersion_data" : disp_data,
@@ -330,14 +363,70 @@ def frequency_analysis(sup_cl):
     }
 
 
-def plot_confusion_matrix(cm, output_path):
+def unsupervised_cluster(sup_cl: dict):
+    X = sup_cl["X"]
+    y_true = sup_cl["labels"]
+    tfidf = sup_cl["tfidf"]
+    texts = sup_cl["texts_pp"]
+
+    km_u = KMeans(n_clusters=N_CLUSTERS, n_init=15, max_iter=500, random_state=RANDOM_STATE)
+    km_u.fit(X)
+    km_labels = km_u.labels_
+    sil_km = silhouette_score(X, km_labels, metric="cosine")
+    ari_km = adjusted_rand_score(y_true, km_labels)
+
+    fn = tfidf.get_feature_names_out()
+    km_cluster_terms = {}
+    for c in range(N_CLUSTERS):
+        order = km_u.cluster_centers_[c].argsort()[::-1][:6]
+        terms = [fn[i] for i in order]
+        km_cluster_terms[c] = terms
+
+
+    svd = TruncatedSVD(n_components=50, random_state=RANDOM_STATE)
+    X_r = svd.fit_transform(X)
+    X_rn = normalize(X_r)
+
+    agg = AgglomerativeClustering(n_clusters=N_CLUSTERS, linkage="ward")
+    agg_labels = agg.fit_predict(X_rn)
+    sil_agg = silhouette_score(X_rn, agg_labels)
+    ari_agg = adjusted_rand_score(y_true, agg_labels)
+
+    sample_idx = np.random.choice(len(texts), min(40, len(texts)), replace=False)
+    Z = linkage(X_rn[sample_idx], method="ward")
+
+
+    db = DBSCAN(eps=0.5, min_samples=2, metric="cosine")
+    db_labels = db.fit_predict(X_r)
+    n_clusters_db = len(set(db_labels)) - (1 if -1 in db_labels else 0)
+    n_noise = list(db_labels).count(-1)
+    if n_clusters_db > 1:
+        sil_db = silhouette_score(X_rn, db_labels)
+    else:
+        sil_db = float("nan")
+    
+    ari_db = adjusted_rand_score(y_true, db_labels)
+
+
+
+    results = {
+        "KMeans": {"silhouette": sil_km,  "ARI": ari_km, "km_cluster_terms": km_cluster_terms},
+        "Agglomerative": {"silhouette": sil_agg,  "ARI": ari_agg, "Z": Z},
+        "DBSCAN": {"silhouette": None if math.isnan(sil_db) else sil_db, "ARI": ari_db, "n_clusters": n_clusters_db, "n_noise": n_noise},
+    }
+
+    return results
+
+
+def plot_confusion_matrix(cm, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
     fig, ax = plt.subplots(figsize=(7,6))
     im = ax.imshow(cm, cmap="Blues", interpolation="nearest")
     plt.colorbar(im, ax=ax)
 
     ax.set_xticks(range(N_CLUSTERS))
     ax.set_yticks(range(N_CLUSTERS))
-    ax.set_xticklabels(DOMAIN_LABELS, ha="right")
+    ax.set_xticklabels(DOMAIN_LABELS)
     ax.set_yticklabels(DOMAIN_LABELS)
 
     for i in range(N_CLUSTERS):
@@ -355,7 +444,8 @@ def plot_confusion_matrix(cm, output_path):
     print(f"{title} saved to: {output_path}")
 
 
-def plot_tfidf_bars(cat_results: dict, output_path):
+def plot_tfidf_bars(cat_results: dict, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
     fig, axes = plt.subplots(1, len(cat_results), figsize=(4*len(cat_results), 5), sharey=False)
     
     if len(cat_results) == 1:
@@ -379,7 +469,8 @@ def plot_tfidf_bars(cat_results: dict, output_path):
     print(f"{title} saved to: {output_path}")
 
 
-def plot_lexical_dispersion(disp_data: dict, words: list, n_docs: int, output_path):
+def plot_lexical_dispersion(disp_data: dict, words: list, n_docs: int, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
     fig, ax = plt.subplots(figsize=(12, 5))
 
     for idx, w in enumerate(words):
@@ -400,7 +491,8 @@ def plot_lexical_dispersion(disp_data: dict, words: list, n_docs: int, output_pa
     print(f"{title} saved to: {output_path}")
 
 
-def plot_word_length_dist(lengths: list, output_path):
+def plot_word_length_dist(lengths: list, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     lc = Counter(lengths)
     xs = sorted(lc.keys())
@@ -419,8 +511,7 @@ def plot_word_length_dist(lengths: list, output_path):
     axes[1].set_ylabel("PMF", fontsize=11)
     axes[1].set_title("Probability Mass Function")
   
-    title = "word_length_dist"
-    # fig.suptitle(title)
+    title = "Word length distibution"
     
     plt.tight_layout()
     plt.savefig(output_path)
@@ -428,7 +519,8 @@ def plot_word_length_dist(lengths: list, output_path):
     print(f"{title} saved to: {output_path}")
 
 
-def plot_bigrams(top_bigrams: list, output_path):
+def plot_bigrams(top_bigrams: list, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
     labels = [" ".join(bg) for bg, _ in top_bigrams[:15]]
     counts = [c for _, c in top_bigrams[:15]]
     colors = plt.cm.viridis(np.linspace(0.2, 0.85, len(labels)))
@@ -439,6 +531,23 @@ def plot_bigrams(top_bigrams: list, output_path):
     
     title = "Top-15 bigrams"
     ax.set_title(title)
+    
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_dendrogram(Z, filename):
+    output_path = os.path.join(OUTPUT_DIR, filename)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    dendrogram(Z, ax=ax, leaf_rotation=90, leaf_font_size=7, color_threshold=0.7*max(Z[:,2]))
+
+    title = "Dendrogram (Agglomerative, Ward linkage)"
+    ax.set_title(title)
+    ax.set_xlabel("Документ (індекс)")
+    ax.set_ylabel("Відстань")
     
     plt.tight_layout()
     plt.savefig(output_path)
