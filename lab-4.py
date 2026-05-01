@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score, adjusted_rand_score, confusion_matrix
 from sklearn.metrics.pairwise import cosine_similarity
@@ -69,8 +69,18 @@ def main():
 
     plot_tfidf_bars(results["tfidf_by_category"], "./outputs/l4_tfidf.png")
 
+    for w, positions in results["dispersion_data"].items():
+        print(f" {w:<10} - {len(positions):4d} positions")
+
     plot_lexical_dispersion(results["dispersion_data"], results["top_terms"], len(ctx["article_items"]), "./outputs/l4_lexical_dispersion.png")
 
+    plot_word_length_dist(results["lengths"], "./outputs/l4_word_length_distribution.png")
+    
+    top_bigrams = results["bigrams"].most_common(20)
+    for bg, cnt in top_bigrams[:10]:
+        print(f" {' '.join(bg):<28} {cnt:4d}")
+
+    plot_bigrams(top_bigrams, "./outputs/l4_bigrams.png")
 
 
 def scrape_newsapi(api_key: str, per_category: int = 15):
@@ -294,15 +304,29 @@ def frequency_analysis(sup_cl):
         for w in top8:
             disp_data[w].extend([i + pos/max(len(toks),1) for pos, t in enumerate(toks) if t == w])
     
-    for w, positions in disp_data.items():
-        print(f" {w:<18} - {len(positions):4d} входжень")
 
+    lengths = [len(w) for w in all_tokens]
+    length_freq = Counter(lengths)
+    for l in sorted(length_freq)[:12]:
+        bar = "=" * int(length_freq[l] / max(length_freq.values()) * 10)
+        print(f"{l:2d} letters : {length_freq[l]} {bar}")
+
+
+    bigrams = Counter()
+    for item in sup_cl["article_items"]:
+        toks = get_tokens(item["text"])
+        for i in range(len(toks)-1):
+            bigrams[(toks[i], toks[i+1])] += 1
+    
 
 
     return {
         "tfidf_by_category": cat_tfidf_results,
         "dispersion_data" : disp_data,
-        "top_terms" : top8
+        "top_terms" : top8,
+        "lengths": lengths,
+        "word_length_distribution": dict(sorted(length_freq.items())),
+        "bigrams": bigrams,
     }
 
 
@@ -347,7 +371,7 @@ def plot_tfidf_bars(cat_results: dict, output_path):
         ax.set_xlabel("TF-IDF score")
     
     title = "TF-IDF top-10 by category"
-    fig.subtitle(title)
+    fig.suptitle(title)
     
     plt.tight_layout()
     plt.savefig(output_path)
@@ -364,12 +388,58 @@ def plot_lexical_dispersion(disp_data: dict, words: list, n_docs: int, output_pa
     
     ax.set_yticks(range(len(words)))
     ax.set_yticklabels(words, fontsize=10)
-    ax.set_xlabel("Позиція (документ)", fontsize=11)
+    ax.set_xlabel("Position", fontsize=11)
     
     title = "Lexical Dispersion"
     ax.set_title(title)
     ax.set_xlim(0, n_docs)
 
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_word_length_dist(lengths: list, output_path):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    lc = Counter(lengths)
+    xs = sorted(lc.keys())
+    ys = [lc[x] for x in xs]
+ 
+    axes[0].bar(xs, ys, color="#42A5F5", edgecolor="white", linewidth=0.5)
+    axes[0].set_xlabel("Word length")
+    axes[0].set_ylabel("Frequency")
+    axes[0].set_title("Word length distribution")
+ 
+    total = sum(ys)
+    pmf = [y/total for y in ys]
+    axes[1].plot(xs, pmf, "o-", color="#EF5350", linewidth=2, markersize=6)
+    axes[1].fill_between(xs, pmf, alpha=0.15, color="#EF5350")
+    axes[1].set_xlabel("Word length", fontsize=11)
+    axes[1].set_ylabel("PMF", fontsize=11)
+    axes[1].set_title("Probability Mass Function")
+  
+    title = "word_length_dist"
+    # fig.suptitle(title)
+    
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_bigrams(top_bigrams: list, output_path):
+    labels = [" ".join(bg) for bg, _ in top_bigrams[:15]]
+    counts = [c for _, c in top_bigrams[:15]]
+    colors = plt.cm.viridis(np.linspace(0.2, 0.85, len(labels)))
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.barh(list(reversed(labels)), list(reversed(counts)), color=list(reversed(colors)))
+    ax.set_xlabel("Frequency")
+    
+    title = "Top-15 bigrams"
+    ax.set_title(title)
+    
     plt.tight_layout()
     plt.savefig(output_path)
     plt.show()
