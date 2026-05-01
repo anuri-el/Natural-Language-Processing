@@ -6,7 +6,7 @@ import spacy
 import numpy as np
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
-from collections import Counter
+from collections import Counter, defaultdict
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
@@ -24,6 +24,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 CSV_FILENAME = "./outputs/l4_articles.csv"
 
 DOMAIN_LABELS  = ["economic", "political", "social", "technology", "sports"]
+DOMAIN_COLORS  = ["#2196F3", "#F44336", "#4CAF50", "#FF9800", "#9C27B0"]
 N_CLUSTERS = 5
 RANDOM_STATE = 42
 
@@ -54,11 +55,23 @@ def main():
         print(f"{dom:<14} {pct:5.1f}% ({correct_i}/{total}) {bar}")
 
     cm = confusion_matrix(ctx["labels"], ctx["preds"], labels=list(range(N_CLUSTERS)))
-    plot_confusion(cm, "./outputs/l4_cm.png")
+    plot_confusion_matrix(cm, "./outputs/l4_cm.png")
 
     print("\nTop terms per cluster")
     print(ctx["top_terms"])
     
+    print(f"\n{SEP}")
+    print("level 2")
+
+    results = frequency_analysis(ctx)
+    print("\nTF-IDF top terms:")
+    print(results["tfidf_by_category"])
+
+    plot_tfidf_bars(results["tfidf_by_category"], "./outputs/l4_tfidf.png")
+
+    plot_lexical_dispersion(results["dispersion_data"], results["top_terms"], len(ctx["article_items"]), "./outputs/l4_lexical_dispersion.png")
+
+
 
 def scrape_newsapi(api_key: str, per_category: int = 15):
     articles = []
@@ -163,6 +176,14 @@ def preprocess(text: str):
     return " ".join(tokens)
 
 
+def get_tokens(text: str):
+    text = filter_text(text)
+    text = normalize_text(text)
+    tokens = tokenize_text(text)
+    tokens = remove_stopwords(tokens)
+    return tokens
+
+
 SEED_WORDS = {
     "economic": ["economy", "finance", "stock", "investment", "gdp", "inflation", "interest", "rate"],
     "political": ["government", "election", "parliament", "senate", "congress", "vote", "democracy", "law"],
@@ -231,10 +252,61 @@ def supervised_cluster(article_items: list[dict]):
         terms = [feat_names[i] for i in order]
         top_terms[dom] = terms
 
-    return {"X": X, "tfidf": tfidf, "labels": label_ids, "cluster_map": cluster_map, "preds": preds_mapped, "texts_pp": texts_pp, "texts_raw": text_raw, "accuracy": acc, "sil": sil, "ari" : ari, "top_terms": top_terms}
+    return {"X": X, 
+            "tfidf": tfidf, 
+            "labels": label_ids, 
+            "cluster_map": cluster_map, 
+            "preds": preds_mapped, 
+            "texts_pp": texts_pp, 
+            "texts_raw": text_raw, 
+            "accuracy": acc, 
+            "sil": sil, 
+            "ari" : ari, 
+            "top_terms": top_terms,
+            "article_items": article_items}
 
 
-def plot_confusion(cm, output_path):
+def frequency_analysis(sup_cl):
+    all_tokens = []
+    for item in sup_cl["article_items"]:
+        all_tokens.extend(get_tokens(item["text"]))
+    
+    by_cat = defaultdict(list)
+    for item in sup_cl["article_items"]:
+        by_cat[item["label"]].append(preprocess(item["text"]))
+ 
+    cat_tfidf_results = {}
+    for cat, docs in by_cat.items():
+        tv = TfidfVectorizer(max_features=500, ngram_range=(1,1), min_df=1)
+        M = tv.fit_transform(docs)
+        scores = np.array(M.sum(axis=0)).flatten()
+        order = scores.argsort()[::-1][:15]
+        terms = [(tv.get_feature_names_out()[i], float(scores[i])) for i in order]
+        cat_tfidf_results[cat] = terms
+        print(f" {cat:<14}: {', '.join(t for t,_ in terms[:8])}")
+
+
+    freq = Counter(all_tokens)
+    top8 = [w for w, _ in freq.most_common(8)]
+    disp_data = {w: [] for w in top8}
+    for i, item in enumerate(sup_cl["article_items"]):
+        toks = get_tokens(item["text"])
+        for w in top8:
+            disp_data[w].extend([i + pos/max(len(toks),1) for pos, t in enumerate(toks) if t == w])
+    
+    for w, positions in disp_data.items():
+        print(f" {w:<18} - {len(positions):4d} входжень")
+
+
+
+    return {
+        "tfidf_by_category": cat_tfidf_results,
+        "dispersion_data" : disp_data,
+        "top_terms" : top8
+    }
+
+
+def plot_confusion_matrix(cm, output_path):
     fig, ax = plt.subplots(figsize=(7,6))
     im = ax.imshow(cm, cmap="Blues", interpolation="nearest")
     plt.colorbar(im, ax=ax)
@@ -242,18 +314,66 @@ def plot_confusion(cm, output_path):
     ax.set_xticks(range(N_CLUSTERS))
     ax.set_yticks(range(N_CLUSTERS))
     ax.set_xticklabels(DOMAIN_LABELS, ha="right")
-    ax.set_xticklabels(DOMAIN_LABELS)
+    ax.set_yticklabels(DOMAIN_LABELS)
 
     for i in range(N_CLUSTERS):
         for j in range(N_CLUSTERS):
             ax.text(j, i, str(cm[i, j]), color="white" if cm[i, j] > cm.max() / 2 else "black")
 
-    title = "Confusion Matrix"
+    title = "Supervised KMeans - Confusion Matrix"
     ax.set_title(title)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
 
     plt.tight_layout()
     plt.savefig(output_path)
     plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_tfidf_bars(cat_results: dict, output_path):
+    fig, axes = plt.subplots(1, len(cat_results), figsize=(4*len(cat_results), 5), sharey=False)
+    
+    if len(cat_results) == 1:
+        axes = [axes]
+    
+    for ax, (cat, terms) in zip(axes, cat_results.items()):
+        ws = [t for t, _ in terms[:10]]
+        sc = [s for _, s in terms[:10]]
+        colors = plt.cm.RdYlGn(np.linspace(0.3, 0.9, len(ws)))
+        
+        ax.barh(list(reversed(ws)), list(reversed(sc)), color=list(reversed(colors)))
+        ax.set_title(cat, fontsize=10)
+        ax.set_xlabel("TF-IDF score")
+    
+    title = "TF-IDF top-10 by category"
+    fig.subtitle(title)
+    
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
+
+
+def plot_lexical_dispersion(disp_data: dict, words: list, n_docs: int, output_path):
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    for idx, w in enumerate(words):
+        positions = disp_data[w]
+        ax.scatter(positions, [idx]*len(positions), marker="|", s=50, color=DOMAIN_COLORS[idx % len(DOMAIN_COLORS)], alpha=0.7)
+    
+    ax.set_yticks(range(len(words)))
+    ax.set_yticklabels(words, fontsize=10)
+    ax.set_xlabel("Позиція (документ)", fontsize=11)
+    
+    title = "Lexical Dispersion"
+    ax.set_title(title)
+    ax.set_xlim(0, n_docs)
+
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.show()
+    print(f"{title} saved to: {output_path}")
 
 
 if __name__ == "__main__":
