@@ -1,217 +1,343 @@
 {
   "global_top10": [
     [
-      "continue",
-      46
+      "trump",
+      182
     ],
     [
-      "reading",
-      45
+      "world",
+      158
     ],
     [
       "iran",
-      35
+      141
     ],
     [
-      "trump",
-      32
+      "service",
+      140
     ],
     [
-      "said",
-      29
+      "president",
+      131
     ],
     [
-      "state",
-      26
+      "minute",
+      124
     ],
     [
-      "say",
-      25
+      "five",
+      121
     ],
     [
-      "war",
-      24
+      "bulletin",
+      116
     ],
     [
       "new",
-      23
+      109
     ],
     [
-      "news",
-      22
+      "war",
+      108
     ]
   ],
   "by_source": {
-    "BBC": [
+    "BBC News": [
       [
-        "state",
-        7
+        "world",
+        124
       ],
       [
-        "king",
-        6
+        "minute",
+        117
       ],
       [
-        "white",
-        6
+        "five",
+        116
       ],
       [
-        "dinner",
-        5
+        "bulletin",
+        116
       ],
       [
-        "house",
-        5
+        "service",
+        116
       ],
       [
-        "say",
-        5
-      ],
-      [
-        "captain",
-        5
-      ],
-      [
-        "woman",
-        4
-      ],
-      [
-        "former",
-        4
-      ],
-      [
-        "speech",
-        4
-      ]
-    ],
-    "New York Times": [
-      [
-        "iran",
-        16
-      ],
-      [
-        "war",
-        13
-      ],
-      [
-        "say",
-        10
-      ],
-      [
-        "oil",
-        8
-      ],
-      [
-        "united",
-        8
-      ],
-      [
-        "minister",
-        8
-      ],
-      [
-        "american",
-        7
-      ],
-      [
-        "trump",
-        7
-      ],
-      [
-        "said",
-        7
-      ],
-      [
-        "two",
-        7
-      ]
-    ],
-    "The Guardian": [
-      [
-        "continue",
-        46
-      ],
-      [
-        "reading",
-        45
-      ],
-      [
-        "trump",
-        23
-      ],
-      [
-        "said",
-        20
-      ],
-      [
-        "news",
-        20
-      ],
-      [
-        "iran",
-        17
-      ],
-      [
-        "official",
-        14
-      ],
-      [
-        "new",
-        14
-      ],
-      [
-        "state",
-        13
+        "gmt",
+        59
       ],
       [
         "year",
-        12
+        16
+      ],
+      [
+        "available",
+        15
+      ],
+      [
+        "people",
+        10
+      ],
+      [
+        "first",
+        9
+      ]
+    ],
+    "CNN": [
+      [
+        "trump",
+        69
+      ],
+      [
+        "president",
+        54
+      ],
+      [
+        "house",
+        37
+      ],
+      [
+        "donald",
+        32
+      ],
+      [
+        "federal",
+        30
+      ],
+      [
+        "state",
+        30
+      ],
+      [
+        "iran",
+        30
+      ],
+      [
+        "white",
+        27
+      ],
+      [
+        "politics",
+        26
+      ],
+      [
+        "first",
+        26
+      ]
+    ],
+    "Associated Press": [
+      [
+        "trump",
+        42
+      ],
+      [
+        "new",
+        34
+      ],
+      [
+        "iran",
+        29
+      ],
+      [
+        "president",
+        29
+      ],
+      [
+        "april",
+        27
+      ],
+      [
+        "company",
+        27
+      ],
+      [
+        "war",
+        25
+      ],
+      [
+        "washington",
+        24
+      ],
+      [
+        "business",
+        22
+      ],
+      [
+        "announced",
+        22
+      ]
+    ],
+    "CBS News": [
+      [
+        "right",
+        79
+      ],
+      [
+        "copyright",
+        67
+      ],
+      [
+        "interactive",
+        67
+      ],
+      [
+        "inc",
+        67
+      ],
+      [
+        "reserved",
+        67
+      ],
+      [
+        "wednesday",
+        37
+      ],
+      [
+        "trump",
+        36
+      ],
+      [
+        "iran",
+        34
+      ],
+      [
+        "war",
+        33
+      ],
+      [
+        "new",
+        31
+      ]
+    ],
+    "Al Jazeera English": [
+      [
+        "iran",
+        44
+      ],
+      [
+        "israel",
+        31
+      ],
+      [
+        "war",
+        30
+      ],
+      [
+        "united",
+        29
+      ],
+      [
+        "trump",
+        29
+      ],
+      [
+        "state",
+        25
+      ],
+      [
+        "newsfeed",
+        23
+      ],
+      [
+        "president",
+        21
+      ],
+      [
+        "two",
+        21
+      ],
+      [
+        "new",
+        20
       ]
     ]
   },
   "by_week": {
     "week_1": [
       [
-        "continue",
-        46
-      ],
-      [
-        "reading",
-        45
-      ],
-      [
-        "iran",
-        35
+        "world",
+        158
       ],
       [
         "trump",
-        32
+        158
       ],
       [
-        "said",
-        29
+        "service",
+        138
       ],
       [
-        "state",
-        26
+        "iran",
+        127
       ],
       [
-        "say",
-        25
+        "minute",
+        124
+      ],
+      [
+        "five",
+        120
+      ],
+      [
+        "bulletin",
+        116
+      ],
+      [
+        "president",
+        111
       ],
       [
         "war",
-        24
+        100
       ],
       [
         "new",
-        23
+        99
+      ]
+    ],
+    "week_2": [
+      [
+        "trump",
+        24
       ],
       [
-        "news",
-        22
+        "president",
+        20
+      ],
+      [
+        "iran",
+        14
+      ],
+      [
+        "thursday",
+        12
+      ],
+      [
+        "donald",
+        11
+      ],
+      [
+        "new",
+        10
+      ],
+      [
+        "politics",
+        9
+      ],
+      [
+        "wednesday",
+        9
+      ],
+      [
+        "security",
+        9
+      ],
+      [
+        "secretary",
+        9
       ]
     ]
   },
-  "analysis_period": "2026-04-15 - 2026-04-29"
+  "analysis_period": "2026-04-17 - 2026-05-01"
 }

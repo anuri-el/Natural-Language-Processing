@@ -38,12 +38,12 @@ DAYS_BACK = 14
 TODAY = datetime.now().date()
 TOP_N = 10
 
+RAW_DATA = "./outputs/l2_raw_articles.json"
 
 def main():
     print(f"\n{SEP}")
     print("Level 2")
-    articles = scrape_all_sources()
-    save_json(articles, "l2_raw_articles.json")
+    articles = load_or_save_articles(RAW_DATA)
 
     print(f"\n{SEP}")
     print("Filtering")
@@ -203,6 +203,33 @@ def scrape_all_sources():
     return all_articles
 
 
+def load_or_save_articles(articles_file):
+    
+    if os.path.exists(articles_file):
+        try:
+            with open(articles_file, 'r', encoding='utf-8') as f:
+                articles = json.load(f)
+            return articles
+        except Exception as e:
+            print(f"Could not load from {articles_file}: {e}")
+            articles = None
+    else:
+        articles = None
+    
+    if articles is None:
+        articles = scrape_all_sources()
+        
+        try:
+            with open(articles_file, 'w', encoding='utf-8') as f:
+                json.dump(articles, f, ensure_ascii=False, indent=2)
+            print(f"Saved {len(articles)} articles to {articles_file}")
+        
+        except Exception as e:
+            print(f"Could not save to {articles_file}: {e}")
+
+        return articles
+
+
 def filter_text(text):
     text = BeautifulSoup(text, "html.parser").get_text()
     text = re.sub(r"http\S+|www\S+", "", text)
@@ -244,7 +271,7 @@ def tokenize_article(articles):
 
 
 STOP_WORDS = set(stopwords.words("english"))
-CUSTOM_STOP_WORDS = {"cnn", "char", "bbc", "news", "latest"}
+CUSTOM_STOP_WORDS = {"cnn", "char", "chars", "bbc", "news", "latest", "say", "said", "cbs"}
 
 def remove_stopwords(tokens):
     stop_words = STOP_WORDS.copy()
@@ -336,12 +363,12 @@ def plot_wk1_vs_wk2(top_data, filename):
     width = 0.38
 
     fig, ax = plt.subplots(figsize=(13, 6))
-    ax.bar(x - width/2, [w1.get(k, 0) for k in all_keys], width, label="week_1", alpha=0.85)
-    ax.bar(x + width/2, [w2.get(k, 0) for k in all_keys], width, label="week_2", alpha=0.85)
+    ax.bar(x - width/2, [w1.get(k, 0) for k in all_keys], width, label="current week", alpha=0.85)
+    ax.bar(x + width/2, [w2.get(k, 0) for k in all_keys], width, label="previous week", alpha=0.85)
     
-    title = "Week 1 vs Week 2"
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.set_xticklabels(all_keys, rotation=35, ha="right", fontsize=10)
+    title = "Current vs Previous Week"
+    ax.set_title(title)
+    ax.set_xticklabels(all_keys)
     ax.set_xticks(x)
     ax.set_ylabel("Frequency")
     ax.legend()

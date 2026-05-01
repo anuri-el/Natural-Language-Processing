@@ -1,9 +1,13 @@
 import os
+import re
 import csv
 import pandas as pd
+import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+nlp_en = spacy.load("en_core_web_lg")
+nlp_uk = spacy.load("uk_core_news_lg")
 
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -31,7 +35,8 @@ def main():
 
         if not text or text.lower() in ("exit", "quit", "q"):
             break
-    
+            
+        text = preprocess(text)
         pred = classify(text, TOPIC_DOCS, TOPIC_NAMES)
         for method in ["TF-IDF", "BoW"]:
             p = pred[method]
@@ -58,7 +63,8 @@ def main():
     n = len(test_samples)
 
     for sample in test_samples:
-        pred = classify(sample["text"], TOPIC_DOCS, TOPIC_NAMES)
+        text = preprocess(sample["text"])
+        pred = classify(text, TOPIC_DOCS, TOPIC_NAMES)
         exp = sample["expected"]
         
         ok_tfidf = pred["TF-IDF"]["predicted"] == exp
@@ -127,6 +133,57 @@ def main():
     print(f"  Total: {accuracy['n']:>8} samples")
 
 
+def detect_language(text: str):
+    cyrillic_chars = sum(1 for char in text if '\u0400' <= char <= '\u04FF')
+    latin_chars = sum(1 for char in text if char.isalpha() and (char < '\u0400' or char > '\u04FF'))
+    
+    if cyrillic_chars > latin_chars:
+        return "uk"
+    else:
+        return "en"
+
+
+def filter_text(text: str):
+    text = re.sub(r"http\S+|www\S+", "", text)
+    text = re.sub(r"[^a-zA-Z\u0400-\u04FF\s\-']", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def normalize_text(text: str):
+    return text.lower().strip()
+
+
+def preprocess(text: str, remove_stopwords: bool = True, lemmatize: bool = True):
+    text = filter_text(text)
+    text = normalize_text(text)
+
+    if not text:
+        return ""
+
+    lang = detect_language(text)
+    nlp = nlp_uk if lang == "uk" else nlp_en
+
+    doc = nlp(text)
+    
+    tokens = []
+    for token in doc:
+        if token.is_punct or token.is_space or len(token.text) <= 2:
+            continue
+        
+        if remove_stopwords and token.is_stop:
+            continue
+        
+        if lemmatize and token.lemma_:
+            token_text = token.lemma_.lower()
+        else:
+            token_text = token.text.lower()
+        
+        tokens.append(token_text)
+    
+    return " ".join(tokens)
+
+
 def build_vectorizers(topic_docs):
     corpus = list(topic_docs.values())
 
@@ -174,7 +231,6 @@ def classify(text: str, topic_docs, topic_names):
     
     results["consensus"] = consensus
     return results
-
 
 
 if __name__ == "__main__":
