@@ -5,9 +5,11 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+from collections import Counter
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
+from nltk.sentiment import SentimentIntensityAnalyzer
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
@@ -62,12 +64,32 @@ def main():
         for j in range(i+1, n):
             print(f"  {r['src_names'][i]} and {r['src_names'][j]}: {len(r['intersection'])} words")
 
-    
 
 
-    plot_sim_heatmap(r["sim_matrix"], r["src_names"], "l5_cosine_similarity_heatmap.png")
-    plot_top_terms_per_source(r["top_terms"], "l5_top_terms_per_source.png")
-    plot_lsa_scatter(r["X_lsa"], r["all_labels"], r["src_names"], "l5_lsa_document_scatter.png")
+    print(f"{SEP}")
+    print("Level 2")
+    sent = sentiment_analysis(articles_by_souce, r)
+
+
+    for src, agg in sent["aggregated"].items():
+        src_agg = sent["aggregated"][src]
+        print(f"{src:>20} compound: {src_agg['mean_score']:+.4f} (pos: {src_agg['positive%']}% / neg: {src_agg['negative%']}% / neu: {src_agg['neutral%']}%)")
+
+
+    for i in range(len(r["src_names"])):
+        for j in range(i+1, len(r["src_names"])):
+            print(f"  {r['src_names'][i]} - {r['src_names'][j]}: {sent['sentiment_similarity'][i,j]:.4f}")
+
+
+    # plot_sim_heatmap(r["sim_matrix"], r["src_names"], "l5_cosine_similarity_heatmap.png")
+    # plot_top_terms_per_source(r["top_terms"], "l5_top_terms_per_source.png")
+    # plot_lsa_scatter(r["X_lsa"], r["all_labels"], r["src_names"], "l5_lsa_document_scatter.png")
+
+    plot_sentiment_bars(sent["aggregated"], r["src_names"], "l5_sentiment_by_source.png")
+    plot_sentiment_distribution(sent["by_source"], r["src_names"], "l5_sentiment_distribution.png")
+    plot_sentiment_sim(sent["sentiment_similarity"], r["src_names"], "l5_sentiment_similarity.png")
+
+
     
 
 
@@ -253,6 +275,59 @@ def comparative_analysis(articles_by_source: dict):
     }
 
 
+def get_sentiment_label(compound_score: float):
+    if compound_score >= 0.15:
+        return "positive"
+    elif compound_score <= -0.15:
+        return "negative"
+    else:
+        return "neutral"
+
+
+def sentiment_analysis(articles_by_source: dict, ctx: dict):
+    src_names = ctx["src_names"]
+    
+    sid = SentimentIntensityAnalyzer()
+
+    all_sentiment = {}
+    src_agg = {}
+
+    for src, arts in articles_by_source.items():
+        results = []
+        for art in arts:
+            scores = sid.polarity_scores(art["text"])
+            compound = scores["compound"]
+            results.append({
+                "title": art["title"],
+                "date":  art.get("date", ""),
+                "label": get_sentiment_label(compound),
+                **scores,
+            })
+        scores = [r["compound"] for r in results]
+        counts = Counter(r["label"] for r in results)
+        n = len(results)
+
+        src_agg[src] = {
+            "mean_score": round(sum(scores)/n, 4) if n else 0,
+            "positive%": round(counts["positive"]/n*100, 1),
+            "negative%": round(counts["negative"]/n*100, 1),
+            "neutral%": round(counts["neutral"]/n*100, 1),
+        }
+        all_sentiment[src] = results
+
+    min_len = min(len(all_sentiment[s]) for s in src_names)
+    sent_vecs = np.array([[r["compound"] for r in all_sentiment[s][:min_len]] for s in src_names])
+    sent_sim = cosine_similarity(sent_vecs)
+    
+
+
+    return {
+        "by_source": all_sentiment,
+        "aggregated": src_agg,
+        "sentiment_similarity": sent_sim,
+    }
+
+
 
 
 
@@ -309,6 +384,79 @@ def plot_lsa_scatter(X_lsa, labels, src_names, fname):
     ax.set_ylabel("LSA-2")
     ax.legend()
 
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_sentiment_bars(agg, src_names, fname):
+    path = os.path.join(OUTPUT_DIR, fname)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+
+    x = np.arange(len(src_names))
+    w = 0.25
+    pos_v = [agg[s]["positive%"] for s in src_names]
+    neg_v = [agg[s]["negative%"] for s in src_names]
+    neu_v = [agg[s]["neutral%"]  for s in src_names]
+    axes[0].bar(x - w, pos_v, w, label="Positive", color="#43A047", alpha=0.87)
+    axes[0].bar(x, neu_v, w, label="Neutral", color="#FB8C00", alpha=0.87)
+    axes[0].bar(x + w, neg_v, w, label="Negative",  color="#E53935", alpha=0.87)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(src_names)
+    axes[0].set_ylabel("% articles")
+    axes[0].set_ylim(0, 100)
+    axes[0].set_title("Distribution of tonality by sources")
+    axes[0].legend()
+
+    means  = [agg[s]["mean_score"] for s in src_names]
+    colors = ["#43A047" if m > 0.1 else "#E53935" if m < -0.1 else "#FB8C00" for m in means]
+    bars = axes[1].bar(src_names, means, color=colors, alpha=0.87, edgecolor="white")
+    axes[1].axhline(0, color="black", linewidth=0.8, linestyle="--")
+    axes[1].set_ylabel("Mean sentiment score")
+    axes[1].set_title("Mean tonality score")
+    for bar, val in zip(bars, means):
+        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + (0.005 if val >= 0 else -0.015), f"{val:+.4f}", ha="center", va="bottom")
+    
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_sentiment_distribution(all_sent, src_names, fname):
+    path = os.path.join(OUTPUT_DIR, fname)
+    fig, axes = plt.subplots(1, len(src_names), figsize=(5*len(src_names), 5), sharey=True)
+
+    for ax, src in zip(axes, src_names):
+        scores = [r["compound"] for r in all_sent[src]]
+        ax.hist(scores, bins=12, range=(-1, 1), alpha=0.8, edgecolor="white")
+        ax.axvline(0, color="black", lw=1, linestyle="--")
+        ax.axvline(np.mean(scores), color="red", lw=2, linestyle="-", label=f"mean={np.mean(scores):+.3f}")
+        ax.set_title(src)
+        ax.set_xlabel("Sentiment score")
+        ax.legend()
+    axes[0].set_ylabel("Number of articles")
+
+    fig.suptitle("Distribution of sentiment scores by sources")
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_sentiment_sim(sim, src_names, fname):
+    path = os.path.join(OUTPUT_DIR, fname)
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    im = ax.imshow(sim, cmap="Blues", vmin=0, vmax=1)
+    plt.colorbar(im, ax=ax, label="Cosine similarity")
+    ax.set_xticks(range(len(src_names)))
+    ax.set_yticks(range(len(src_names)))
+    ax.set_xticklabels(src_names)
+    ax.set_yticklabels(src_names)
+    for i in range(len(src_names)):
+        for j in range(len(src_names)):
+            ax.text(j, i, f"{sim[i,j]:.3f}", ha="center", va="center", color="white" if sim[i,j] > 0.6 else "black")
+    
+    ax.set_title("Sentiment similarity")
     plt.tight_layout()
     plt.savefig(path)
     plt.show()
