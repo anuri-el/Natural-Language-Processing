@@ -10,7 +10,7 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.sentiment import SentimentIntensityAnalyzer
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import normalize
@@ -52,58 +52,54 @@ def main():
             print(f"{r['sim_matrix'][i,j]:>14.4f}", end="")
         print()
 
-    print("Top 10 unique terms by source (TF-IDF):")
+    print("\nTop 10 unique terms by source (TF-IDF):")
     for src in r["src_names"]:
-        print(f"  {src:<16}: {', '.join(t for t,_ in r['top_terms'][src][:6])}")
+        print(f"  {src:<18}: {', '.join(t for t,_ in r['top_terms'][src][:6])}")
 
-    print("Dictionary cross-section between sources:")
+    print("\nDictionary cross-section between sources:")
     
     print(f"Common all: {len(set.intersection(*r['vocab_sets'].values()))}")
     n = len(r["src_names"])
     for i in range(n):
         for j in range(i+1, n):
-            print(f"  {r['src_names'][i]} and {r['src_names'][j]}: {len(r['intersection'])} words")
-
-
+            intersection_size = len(r['vocab_sets'][r['src_names'][i]] & r['vocab_sets'][r['src_names'][j]])
+            srcs = f"{r['src_names'][i]} - {r['src_names'][j]}"
+            print(f"{srcs:>40} : {intersection_size} words")
 
     print(f"{SEP}")
     print("Level 2")
     sent = sentiment_analysis(articles_by_souce, r)
 
-
     for src, agg in sent["aggregated"].items():
         src_agg = sent["aggregated"][src]
         print(f"{src:>20} compound: {src_agg['mean_score']:+.4f} (pos: {src_agg['positive%']}% / neg: {src_agg['negative%']}% / neu: {src_agg['neutral%']}%)")
 
-
+    print("\n Sentiment Similarity:")
     for i in range(len(r["src_names"])):
         for j in range(i+1, len(r["src_names"])):
-            print(f"  {r['src_names'][i]} - {r['src_names'][j]}: {sent['sentiment_similarity'][i,j]:.4f}")
+            srcs = f"{r['src_names'][i]} - {r['src_names'][j]}"
+            print(f"  {srcs:>40} : {sent['sentiment_similarity'][i,j]:.4f}")
 
-
-    # plot_sim_heatmap(r["sim_matrix"], r["src_names"], "l5_cosine_similarity_heatmap.png")
-    # plot_top_terms_per_source(r["top_terms"], "l5_top_terms_per_source.png")
-    # plot_lsa_scatter(r["X_lsa"], r["all_labels"], r["src_names"], "l5_lsa_document_scatter.png")
-
+    plot_sim_heatmap(r["sim_matrix"], r["src_names"], "l5_cosine_similarity_heatmap.png")
+    plot_top_terms_per_source(r["top_terms"], "l5_top_terms_per_source.png")
+    plot_lsa_scatter(r["X_lsa"], r["all_labels"], r["src_names"], "l5_lsa_document_scatter.png")
     plot_sentiment_bars(sent["aggregated"], r["src_names"], "l5_sentiment_by_source.png")
     plot_sentiment_distribution(sent["by_source"], r["src_names"], "l5_sentiment_distribution.png")
     plot_sentiment_sim(sent["sentiment_similarity"], r["src_names"], "l5_sentiment_similarity.png")
 
 
-    
-
-
-def scrape_newsapi(api_key: str, page_size: int = 30):
+def scrape_newsapi(api_key: str, page_size: int = 50):
     result = {}
 
     for src_id, name in SOURCES.items():
         articles = []
-        url = "https://newsapi.org/v2/top-headlines"
+        url = "https://newsapi.org/v2/everything"
         params = {
             "apiKey": api_key,
             "sources": src_id,
             "language": "en",
-            "pageSize": page_size
+            "pageSize": page_size,
+            "sortBy": "publishedAt"
         }
         try:
             resp = requests.get(url, params=params, timeout=10)
@@ -318,17 +314,12 @@ def sentiment_analysis(articles_by_source: dict, ctx: dict):
     min_len = min(len(all_sentiment[s]) for s in src_names)
     sent_vecs = np.array([[r["compound"] for r in all_sentiment[s][:min_len]] for s in src_names])
     sent_sim = cosine_similarity(sent_vecs)
-    
-
 
     return {
         "by_source": all_sentiment,
         "aggregated": src_agg,
         "sentiment_similarity": sent_sim,
     }
-
-
-
 
 
 def plot_sim_heatmap(matrix, names, fname):
@@ -415,7 +406,7 @@ def plot_sentiment_bars(agg, src_names, fname):
     axes[1].set_ylabel("Mean sentiment score")
     axes[1].set_title("Mean tonality score")
     for bar, val in zip(bars, means):
-        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + (0.005 if val >= 0 else -0.015), f"{val:+.4f}", ha="center", va="bottom")
+        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + (0 if val >= 0 else -0.026), f"{val:+.4f}", ha="center", va="bottom")
     
     plt.tight_layout()
     plt.savefig(path)
