@@ -39,6 +39,7 @@ preshed==3.0.13
 PyAudio==0.2.14
 pydantic==2.13.3
 pydantic_core==2.46.3
+pydub==0.25.1
 Pygments==2.20.0
 pymorphy3==2.0.6
 pymorphy3-dicts-ru==2.4.417150.4580142
