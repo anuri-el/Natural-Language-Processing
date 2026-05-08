@@ -1,5 +1,6 @@
 __pycache__
 *.txt
+*.wav
 .env
 to-do.txt
 l4_articles.csv
