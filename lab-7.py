@@ -3,21 +3,23 @@ import math
 import spacy
 import argparse
 import numpy as np
+import matplotlib.pyplot as plt
 import speech_recognition as sr
 from collections import Counter
 from gtts import gTTS
 from pydub import AudioSegment
 from scipy.io import wavfile
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfilt, spectrogram
 from scipy.fft import fft, fftfreq
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 OUTPUT_DIR  = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SAMPLE_RATE   = 16000 
-MIC_DURATION  = 10
+MIC_DURATION  = 30
 
 nlp = spacy.load("uk_core_news_lg")
 
@@ -26,7 +28,27 @@ SOURCE_TEXT = """
 розвитку сучасних технологій. Ці галузі охоплюють широкий спектр методів, 
 алгоритмів та підходів, що дозволяють комп'ютерним системам навчатися на основі 
 даних та приймати рішення без явного програмування кожної дії.
-"""
+
+Нейронні мережі, натхненні будовою людського мозку, стали основою більшості 
+сучасних систем штучного інтелекту. Вони складаються з великої кількості 
+взаємопов'язаних вузлів — нейронів, які обробляють інформацію та передають 
+сигнали один одному. Глибинне навчання, що використовує багатошарові нейронні 
+мережі, дозволило досягти надзвичайних результатів у таких задачах, як 
+розпізнавання зображень, обробка природної мови та синтез мовлення.
+
+Обробка природної мови є однією з ключових галузей штучного інтелекту. Вона 
+включає в себе різноманітні задачі: автоматичний переклад між мовами, аналіз 
+тональності текстів, виявлення іменованих сутностей, побудову систем запитань 
+та відповідей, а також генерацію текстів. Такі моделі, як BERT, GPT та їхні 
+варіанти, революціонізували підходи до розуміння та генерації природної мови.
+
+Аналіз аудіо-повідомлень є важливим напрямом у сучасній системі обробки 
+інформації. Перетворення мовлення на текст та тексту на мовлення відкривають 
+нові можливості для взаємодії людини з машиною. Системи розпізнавання мовлення 
+сьогодні досягли такого рівня точності, що здатні розуміти мовлення різних 
+людей з різними акцентами та в умовах навколишнього шуму.
+
+""".strip()
 
 
 def main():
@@ -70,7 +92,17 @@ def main():
     print(f"POS: {dict(nlp['pos_dist'])}")
     print(f"Top-10: {[w for w,_ in nlp['top10_words']]}")
 
-    
+
+    annotation = auto_annotate(nlp)
+    print(f"Annotation: «{annotation[:120]}…»")
+
+    verif_path = verify_tts(annotation, "l7_verification_audio.wav")
+
+    plot_audio_analysis(filtered, rate, "l7_audio_analysis.png")
+    plot_top_words(nlp, "l7_top_words.png")
+    plot_word_length_distribution(nlp, "l7_word_length.png")
+    plot_pos_distribution(nlp, "l7_pos_distribution.png")
+    plot_top_bigrams(nlp, "l7_top_bigrams.png")
 
 
 def parse_args():
@@ -241,7 +273,7 @@ def speech_to_text(audio_path: str, language: str = "uk-UA"):
         text = recognizer.recognize_google(audio, language=language)
         return text
     except sr.UnknownValueError:
-        print(" STT: speech not recognized")
+        print("STT: speech not recognized")
         return ""
     except Exception as e:
         print(f"[err] {e}")
@@ -299,6 +331,150 @@ def nlp_pipeline(text: str):
         "X_tfidf": X_tfidf,
         "sent_clean": sent_clean,
     }
+
+
+def auto_annotate(nlp):
+    sentences = nlp["sentences"]
+    sent_clean = nlp["sent_clean"]
+    X = nlp["X_tfidf"]
+
+    if X.shape[0] < 2:
+        return sentences[0] if sentences else "Анотація недоступна."
+
+    sim = cosine_similarity(X)
+    np.fill_diagonal(sim, 0)
+
+    scores = np.ones(sim.shape[0]) / sim.shape[0]
+    d = 0.85
+    for _ in range(30):
+        row_sums = sim.sum(axis=1, keepdims=True) + 1e-9
+        trans = sim / row_sums
+        scores = (1-d)/sim.shape[0] + d * trans.T @ scores
+
+    best_idx = int(np.argmax(scores))
+    best_sent = sentences[min(best_idx, len(sentences)-1)]
+    return best_sent.strip()
+
+
+def verify_tts(annotation: str, fname):
+    path = os.path.join(OUTPUT_DIR, fname)
+    try:
+        mp3 = path.replace(".wav", ".mp3")
+        gTTS(text=annotation, lang="uk").save(mp3)
+        return mp3
+    except Exception as e:
+        print(f"[err] {e}")
+
+
+def plot_audio_analysis(filtered: dict, rate: int, fname: str):
+    fig, axes = plt.subplots(3, 1, figsize=(16, 12))
+    plt.subplots_adjust(hspace=0.4)
+
+    signal_orig = filtered["original"]
+    signal_filt = filtered["normalized"]
+    t_orig = np.linspace(0, len(signal_orig)/rate, len(signal_orig))
+
+    axes[0].plot(t_orig, signal_orig, color="#1565C0", lw=0.6, alpha=0.85)
+    axes[0].set_title("Original Signal")
+    axes[0].set_xlabel("Time (s)")
+    axes[0].set_ylabel("Amplitude")
+    axes[0].grid(alpha=0.3)
+
+    axes[1].plot(t_orig, signal_filt, color="#2E7D32", lw=0.6, alpha=0.85)
+    axes[1].set_title("Filtered Signal (Butterworth filter + Spectral Subtraction)")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylabel("Amplitude")
+    axes[1].grid(alpha=0.3)
+
+    f_sg, t_sg, Sxx = spectrogram(signal_filt, rate, nperseg=256, noverlap=128)
+    pcm = axes[2].pcolormesh(t_sg, f_sg, 10*np.log10(np.abs(Sxx)+1e-9), shading="gouraud", cmap="inferno")
+    axes[2].set_ylim(0, 4000)
+    axes[2].set_title("Spectrogram (0-4000 Hz)")
+    axes[2].set_xlabel("Time (s)")
+    axes[2].set_ylabel("Frequency (Hz)")
+    plt.colorbar(pcm, ax=axes[2], label="Decibel (dB)")
+
+    fig.suptitle("Audio Signal Analysis")
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_top_words(nlp: dict, fname: str = None):
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    words15 = [w for w, _ in nlp["freq_content"].most_common(15)]
+    counts15 = [c for _, c in nlp["freq_content"].most_common(15)]
+    colors15 = plt.cm.YlOrRd(np.linspace(0.3, 0.9, 15))
+    
+    ax.barh(list(reversed(words15)), list(reversed(counts15)), color=list(reversed(colors15)), alpha=0.87)
+    ax.set_title("Top-15 terms")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Terms")
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_word_length_distribution(nlp: dict, fname: str = None):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    lengths = nlp["lengths"]
+    xs = sorted(lengths.keys())
+    ys = [lengths[x] for x in xs]
+    
+    ax.bar(xs, ys, alpha=0.85, edgecolor="white")
+    ax.set_title("Word Length Distribution")
+    ax.set_xlabel("Number of letters")
+    ax.set_ylabel("Frequency")
+        
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_pos_distribution(nlp: dict, fname: str = None):
+    fig, ax = plt.subplots(figsize=(8, 8))
+    
+    pos_d = nlp["pos_dist"]
+    pos_labels = list(pos_d.keys())
+    pos_vals = list(pos_d.values())
+    
+    wedges, texts, autotexts = ax.pie(pos_vals, labels=pos_labels, autopct="%1.1f%%", startangle=140)
+    
+    for autotext in autotexts:
+        autotext.set_color('white')
+    
+    ax.set_title("POS-distribution")
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_top_bigrams(nlp: dict, fname: str = None):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    bg_labels = [" ".join([token.text for token in bg]) for bg, _ in nlp["top10_bigrams"][:10]]
+    bg_vals = [c for _, c in nlp["top10_bigrams"][:10]]
+    bg_colors = plt.cm.Blues(np.linspace(0.4, 0.9, len(bg_labels)))
+    
+    ax.barh(list(reversed(bg_labels)), list(reversed(bg_vals)),
+            color=list(reversed(bg_colors)), alpha=0.87)
+    ax.set_title("Top-10 bigram")
+    ax.set_xlabel("Frequency")
+    ax.set_ylabel("Bigrams")
+    
+    for i, (label, val) in enumerate(zip(reversed(bg_labels), reversed(bg_vals))):
+        ax.text(val + 0.1, i, str(val), va='center')
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
 
 
 if __name__ == "__main__":
