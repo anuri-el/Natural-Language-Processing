@@ -23,6 +23,7 @@ MIC_DURATION  = 30
 
 nlp = spacy.load("uk_core_news_lg")
 
+SEP= "=" * 67
 SOURCE_TEXT = """
 Штучний інтелект та машинне навчання сьогодні є одними з найважливіших напрямів 
 розвитку сучасних технологій. Ці галузі охоплюють широкий спектр методів, 
@@ -62,6 +63,7 @@ def main():
     else:
         audio_path = generate_audio(SOURCE_TEXT, "l7_source_audio.wav")
 
+    print(f"\n{SEP}")
     rate, signal = load_audio(audio_path)
     print(f"Rate: {rate} Hz, duration={len(signal)/rate:.1f}")
 
@@ -73,11 +75,17 @@ def main():
     wavfile.write(filt_path, rate, filt_int16)
     print(f"Filted audio: {filt_path}")
 
+    print(f"\n{SEP}")
     features = extract_audio_features(filtered["normalized"], rate)
-    print(f"Duration: {features['duration_sec']}с")
+    print(f"Duration: {features['duration_sec']}s")
+    print(f"rms: {features['rms']}")
+    print(f"zcr: {features['zcr']}")
     print(f"Спект. центроїд: {features['spectral_centroid']:.1f} Гц")
+    print(f"spectral_bandwidth: {features['spectral_bandwidth']:.1f} Гц")
+    print(f"spectral_flatness: {features['spectral_flatness']:.1f} Гц")
     print(f"MFCC (перші 5): {features['mfcc'][:5]}")
 
+    print(f"\n{SEP}")
     recognized_text = speech_to_text(audio_path)
 
     txt_raw = os.path.join(OUTPUT_DIR, "l7_recognized_text_raw.txt")
@@ -93,6 +101,7 @@ def main():
     print(f"Top-10: {[w for w,_ in nlp['top10_words']]}")
 
 
+    print(f"\n{SEP}")
     annotation = auto_annotate(nlp)
     print(f"Annotation: «{annotation[:120]}…»")
 
@@ -400,7 +409,7 @@ def plot_audio_analysis(filtered: dict, rate: int, fname: str):
     plt.show()
 
 
-def plot_top_words(nlp: dict, fname: str = None):
+def plot_top_words(nlp: dict, fname):
     fig, ax = plt.subplots(figsize=(10, 8))
     
     words15 = [w for w, _ in nlp["freq_content"].most_common(15)]
@@ -418,7 +427,7 @@ def plot_top_words(nlp: dict, fname: str = None):
     plt.show()
 
 
-def plot_word_length_distribution(nlp: dict, fname: str = None):
+def plot_word_length_distribution(nlp: dict, fname):
     fig, ax = plt.subplots(figsize=(10, 6))
     
     lengths = nlp["lengths"]
@@ -436,7 +445,7 @@ def plot_word_length_distribution(nlp: dict, fname: str = None):
     plt.show()
 
 
-def plot_pos_distribution(nlp: dict, fname: str = None):
+def plot_pos_distribution(nlp: dict, fname):
     fig, ax = plt.subplots(figsize=(8, 8))
     
     pos_d = nlp["pos_dist"]
@@ -455,7 +464,7 @@ def plot_pos_distribution(nlp: dict, fname: str = None):
     plt.show()
 
 
-def plot_top_bigrams(nlp: dict, fname: str = None):
+def plot_top_bigrams(nlp: dict, fname):
     fig, ax = plt.subplots(figsize=(10, 6))
     
     bg_labels = [" ".join([token.text for token in bg]) for bg, _ in nlp["top10_bigrams"][:10]]
