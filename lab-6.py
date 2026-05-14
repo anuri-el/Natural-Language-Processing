@@ -4,22 +4,20 @@ import json
 import requests
 import numpy as np
 import matplotlib.pyplot as plt
-import nltk
 from dotenv import load_dotenv
-from collections import Counter, defaultdict
+from collections import Counter
 from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords, opinion_lexicon, wordnet, brown
+from nltk.corpus import stopwords, opinion_lexicon, wordnet
 from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler, normalize, LabelEncoder
-from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.metrics import confusion_matrix, silhouette_score, accuracy_score
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
 from sklearn.decomposition import TruncatedSVD
 
 from NumpyMLP import NumpyMLP
-
+from NumpyAutoencoder import NumpyAutoencoder
 
 
 SEP = "=" * 67
@@ -40,7 +38,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 CSV_FILENAME = os.path.join(OUTPUT_DIR, "l5_articles.json")
 
 
-DOMAIN_LABELS  = ["economic", "political", "social", "technology", "sports"]
+DOMAIN_LABELS = ["economic", "political", "social", "technology", "sports"]
+SENT_LABELS = ["negative", "neutral", "positive"]
 RANDOM_STATE = 42
 
 
@@ -48,29 +47,31 @@ def main():
     articles = load_or_save_articles(CSV_FILENAME)
 
     print(f"{SEP}")
-    print("Level 1")
     tfidf = build_vectorizer(articles)
     print(f"TF-IDF vocab: {len(tfidf.vocabulary_)} terms")
 
     dom_data, sent_data = build_training_data(tfidf)
-    print(f"  Domain corpus: {dom_data[0].shape}")
-    print(f"  Sentiment corpus: {sent_data[0].shape}")
-
+    print(f"Domain corpus: {dom_data[0].shape}")
+    print(f"Sentiment corpus: {sent_data[0].shape}")
 
 
     print(f"\n{SEP}")
-    r = comparative_analysis(articles, tfidf, dom_data, sent_data)
+    print("Level 1")
     print("Sklearn MLP for domain classification")
-    print(f"    Точність на корпусі: {r['dom_train_acc']:.4f}")
+    r = comparative_analysis(articles, tfidf, dom_data, sent_data)
+    for src in r["src_names"]:
+        arts_src = [a for a in r["all_arts"] if a["source"] == src]
+        dist = Counter(a["pred_domain"] for a in arts_src)
+        print(f"  {src:<16}: {dict(dist)}")
 
+    print(f"  Точність на корпусі: {r['dom_train_acc']:.4f}")
+
+    print(f"\n{SEP}")
     print("Custom NumpyMLP for domain")
-    print(f"    Val accuracy (numpy MLP): {r['np_dom_val_acc']:.4f}")
+    print(f" Val accuracy (numpy MLP): {r['np_dom_val_acc']:.4f}")
 
 
-    print("Predict domains for all articles")
-
-
-    print("  Матриця схожості між джерелами (attention-based cosine):")
+    print("Матриця схожості між джерелами (attention-based cosine):")
     print(f"  {'':20}", end="")
     src_names = list(SOURCES.values())
     for s in src_names: 
@@ -83,8 +84,47 @@ def main():
         print()   
 
 
+    s_ctx = sentiment_analysis(r, sent_data)
+    print("\n Навчання MLP-класифікатора тональності (sklearn):")
+    print(f"  Точність на корпусі: {s_ctx['train_acc']:.4f}")
 
-def scrape_newsapi(api_key: str, page_size: int = 50):
+    print("\n Власний Numpy MLP для тональності:")
+    print(f"  Val accuracy (numpy MLP): {s_ctx['np_val_acc']:.4f}")
+
+    print("\n Визначення тональності статей:")
+    count = 0
+    max_articles = 5
+    for src in src_names:
+        arts_src = [a for a in r["all_arts"] if a["source"] == src]
+        for a in arts_src:
+            if count >= max_articles:
+                break
+            p = a["pred_sentiment"]
+            conf = a["sent_proba"].get(p, 0)
+            print(f"  {p:<9} {conf:.2f}  {a['title'][:55]}")
+            count += 1
+        if count >= max_articles:
+            break
+
+    print("\n Навчання Autoencoder для латентного представлення")
+    print(f"  Autoencoder final MSE loss: {s_ctx['ae'].history[-1]:.6f}")
+    print(f"  Латентний простір: {s_ctx['X_ae'].shape} → {s_ctx['codes'].shape}")
+
+
+    plot_training_curve(r["mlp_dom"].loss_curve_, getattr(r["mlp_dom"],"validation_scores_",[]), "l6_mlp_domain_loss.png", "MLP (sklearn) — Крива навчання (тематика)")
+    plot_numpy_mlp_curve(r["np_mlp_dom"].history, "l6_numpy_mlp_domain_curve.png", "Numpy MLP — Loss та Val-accuracy (тематика)")
+    plot_domain_distribution(r["all_arts"], src_names, "l6_domain_distribution.png")
+    plot_sim_heatmap(r["sim_matrix"], src_names, "l6_attention_similarity.png")
+
+    plot_training_curve(s_ctx["mlp_sent"].loss_curve_, getattr(s_ctx["mlp_sent"],"validation_scores_",[]), "l6_mlp_sentiment_loss.png", "MLP (sklearn) — Крива навчання (тональність)")
+    plot_numpy_mlp_curve(s_ctx["np_mlp_sent"].history, "l6_numpy_mlp_sent_curve.png", "Numpy MLP — Loss та Val-accuracy (тональність)")
+    plot_sentiment_bars(s_ctx["sent_agg"], src_names, "l6_sentiment_bars.png")
+    plot_sentiment_heatmap(r["all_arts"], src_names, "l6_sentiment_heatmap.png")
+    plot_autoencoder(s_ctx["ae"], s_ctx["codes"], r["all_arts"], src_names, "l6_autoencoder.png")
+    plot_proba_violin(r["all_arts"], src_names, s_ctx["le_sent"], "l6_sentiment_proba_violin.png")
+
+
+def scrape_newsapi(api_key: str, page_size: int = 100):
     result = {}
 
     for src_id, name in SOURCES.items():
@@ -175,12 +215,6 @@ def tokenize_text(text: str):
 
 
 STOP_WORDS = set(stopwords.words("english"))
-# CUSTOM_STOP_WORDS = {
-#     "new", "say", "says", "news", "one", "com", "time", "may", "could", "latest", "across", "bbc",
-#     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "march", "april",
-#     "today", "yesterday", "week", "month", "year", "first", "last", "daily", "post",
-#     "said", "also", "according", "report", "get", "like", "make",
-# }
 
 def remove_stopwords(tokens):
     stop_words = STOP_WORDS.copy()
@@ -302,7 +336,7 @@ domain_corpus = {
 sentiment_corpus = build_sentiment_corpus()
 
 def build_vectorizer(articles: dict):
-    corpus_docs = [preprocess(t) for ts in domain_corpus.values() for t in ts]
+    corpus_docs = [preprocess(" ".join(ts.split()[i:i+8])) for ts in domain_corpus.values() for i in range(0, len(ts.split()), 8)]
     corpus_docs += [preprocess(t) for ts in sentiment_corpus.values() for t in ts]
     corpus_docs += [preprocess(a["text"]) for arts in articles.values() for a in arts]
 
@@ -330,8 +364,9 @@ def self_attention(X: np.array, d_k: int = 32):
 def build_training_data(tfidf: TfidfVectorizer):
     dom_texts, dom_labels = [], []
     for label, docs in domain_corpus.items():
-        for doc in docs:
-            dom_texts.append(preprocess(doc))
+        words = docs.split()
+        for i in range(0, len(words), 8):
+            dom_texts.append(preprocess(" ".join(words[i:i+8])))
             dom_labels.append(label)
     X_dom = tfidf.transform(dom_texts).toarray().astype(np.float32)
 
@@ -352,7 +387,6 @@ def comparative_analysis(articles: dict, tfidf: TfidfVectorizer, dom_data, sent_
     label_encoder = LabelEncoder()
     y_dom_tr = label_encoder.fit_transform(y_dom_tr)
 
-
     scaler_d = StandardScaler(with_mean=False)
     Xs_d = scaler_d.fit_transform(X_dom_tr)
 
@@ -368,13 +402,13 @@ def comparative_analysis(articles: dict, tfidf: TfidfVectorizer, dom_data, sent_
     dom_train_acc = accuracy_score(y_dom_tr, mlp_dom.predict(Xs_d))
 
 
-    svd_d = TruncatedSVD(n_components=64, random_state=RANDOM_STATE)
+    n_svd_d = min(64, X_dom_tr.shape[0] - 1)
+    svd_d = TruncatedSVD(n_components=n_svd_d, random_state=RANDOM_STATE)
     Xr_d = svd_d.fit_transform(X_dom_tr)
-    np_mlp_dom = NumpyMLP(layer_sizes=[64, 128, 64, len(DOMAIN_LABELS)], lr=0.008, momentum=0.88, l2=1e-4, epochs=120, batch_size=4,)
+    np_mlp_dom = NumpyMLP(layer_sizes=[n_svd_d, 128, 64, len(DOMAIN_LABELS)], lr=0.008, momentum=0.88, l2=1e-4, epochs=120, batch_size=4,)
     Xr_d_tr, Xr_d_val, yr_d_tr, yr_d_val = train_test_split(Xr_d, y_dom_tr, test_size=0.2, stratify=y_dom_tr, random_state=RANDOM_STATE)
     np_mlp_dom.fit(Xr_d_tr, yr_d_tr, Xr_d_val, yr_d_val)
     np_dom_val_acc = np_mlp_dom.history[-1].get("val_acc", 0)
-
 
 
     all_arts = [a for arts in articles.values() for a in arts]
@@ -383,31 +417,25 @@ def comparative_analysis(articles: dict, tfidf: TfidfVectorizer, dom_data, sent_
     Xs_arts = scaler_d.transform(X_arts)
 
     preds_dom = mlp_dom.predict(Xs_arts)
-    for a, p in zip(all_arts, preds_dom):
+    preds_dom_labels = label_encoder.inverse_transform(preds_dom)
+    for a, p in zip(all_arts, preds_dom_labels):
         a["pred_domain"] = p
-
-    for src in src_names:
-        arts_src = [a for a in all_arts if a["source"] == src]
-        dist = Counter(a["pred_domain"] for a in arts_src)
-        print(f"    {src:<16}: {dict(dist)}")
-
 
 
     svd2 = TruncatedSVD(n_components=32, random_state=RANDOM_STATE)
-    X_r32 = normalize(svd_d.fit_transform(X_arts))
+    X_r32 = normalize(svd2.fit_transform(X_arts))
     attn_out, attn_weights = self_attention(X_r32, d_k=16)
 
     src_vecs = {}
     for src in src_names:
         mask = np.array([a["source"] == src for a in all_arts])
-        src_vecs[src] = attn_out[mask].mean(axis=0)
+        src_vecs[src] = X_r32[mask].mean(axis=0)
 
     sim_mat = np.zeros((len(src_names), len(src_names)))
     for i,s1 in enumerate(src_names):
         for j,s2 in enumerate(src_names):
             v1 = src_vecs[s1]; v2 = src_vecs[s2]
             sim_mat[i,j] = float(v1 @ v2 / (np.linalg.norm(v1)*np.linalg.norm(v2)+1e-9))
-
 
     return {
         "mlp_dom": mlp_dom, 
@@ -424,6 +452,289 @@ def comparative_analysis(articles: dict, tfidf: TfidfVectorizer, dom_data, sent_
         "dom_train_acc": dom_train_acc,
         "np_dom_val_acc": np_dom_val_acc,
     }
+
+
+
+def sentiment_analysis(ctx: dict, sent_data):
+    X_sent_tr, y_sent_tr = sent_data
+    all_arts = ctx["all_arts"]
+    src_names = ctx["src_names"]
+
+    label_encoder_sent = LabelEncoder()
+    y_sent_tr = label_encoder_sent.fit_transform(y_sent_tr)
+
+
+    scaler_s = StandardScaler(with_mean=False)
+    Xs_s = scaler_s.fit_transform(X_sent_tr)
+
+    mlp_sent = MLPClassifier(
+        hidden_layer_sizes=(256, 128, 64, 32),
+        activation="relu", solver="adam",
+        learning_rate_init=0.001, max_iter=400,
+        alpha=1e-4, early_stopping=True,
+        validation_fraction=0.25, random_state=RANDOM_STATE,
+        verbose=False,
+    )
+    mlp_sent.fit(Xs_s, y_sent_tr)
+    train_acc_s = accuracy_score(y_sent_tr, mlp_sent.predict(Xs_s))
+
+
+
+    svd_s = TruncatedSVD(n_components=48, random_state=RANDOM_STATE)
+    Xr_s  = svd_s.fit_transform(X_sent_tr)
+    np_mlp_sent = NumpyMLP(
+        layer_sizes=[48, 96, 48, len(SENT_LABELS)],
+        lr=0.01, momentum=0.9, l2=1e-4, epochs=100, batch_size=4,
+    )
+    Xr_s_tr, Xr_s_val, yr_s_tr, yr_s_val = train_test_split(
+        Xr_s, y_sent_tr, test_size=0.25, stratify=y_sent_tr, random_state=RANDOM_STATE)
+    np_mlp_sent.fit(Xr_s_tr, yr_s_tr, Xr_s_val, yr_s_val)
+    np_sent_val_acc = np_mlp_sent.history[-1].get("val_acc", 0)
+
+
+
+    X_arts = ctx["X_arts"]
+    Xs_arts_s = scaler_s.transform(X_arts)
+    preds_sent  = mlp_sent.predict(Xs_arts_s)
+    probas_sent = mlp_sent.predict_proba(Xs_arts_s)
+    le_sent     = label_encoder_sent.inverse_transform(mlp_sent.classes_)  # string labels
+
+    sent_agg = {}
+    for a, p, prob in zip(all_arts, preds_sent, probas_sent):
+        a["pred_sentiment"] = label_encoder_sent.inverse_transform([p])[0]
+        a["sent_proba"]     = {cls: float(pr) for cls, pr in zip(le_sent, prob)}
+
+    for src in src_names:
+        arts_src = [a for a in all_arts if a["source"] == src]
+        dist = Counter(a["pred_sentiment"] for a in arts_src)
+        scores = []
+        for a in arts_src:
+            proba = a["sent_proba"]
+            score = proba.get("positive",0) - proba.get("negative",0)
+            scores.append(score)
+        mean_score = sum(scores)/len(scores) if scores else 0
+        sent_agg[src] = {
+            "counts": dict(dist),
+            "mean_score": round(mean_score, 4),
+            "positive%": round(dist.get("positive",0)/len(arts_src)*100, 1),
+            "negative%": round(dist.get("negative",0)/len(arts_src)*100, 1),
+            "neutral%":  round(dist.get("neutral",0)/len(arts_src)*100, 1),
+        }
+
+
+
+    svd_ae = TruncatedSVD(n_components=128, random_state=RANDOM_STATE)
+    X_ae   = normalize(svd_ae.fit_transform(X_arts).astype(np.float32))
+    ae = NumpyAutoencoder(input_dim=128, hidden_dim=64, code_dim=16, lr=0.005, epochs=60, batch_size=8)
+    ae.fit(X_ae)
+    codes = ae.encode(X_ae)
+
+
+
+    return {
+        "mlp_sent": mlp_sent, 
+        "np_mlp_sent": np_mlp_sent,
+        "scaler_s": scaler_s, 
+        "svd_ae": svd_ae,
+        "codes": codes,
+        "X_ae": X_ae,
+        "ae": ae, 
+        "sent_agg": sent_agg,
+        "train_acc": train_acc_s, 
+        "np_val_acc": np_sent_val_acc,
+        "le_sent": le_sent
+    }
+
+
+def plot_training_curve(loss_curve, val_scores, fname, title):
+    fig, axes = plt.subplots(1,2, figsize=(12,4))
+    axes[0].plot(loss_curve, color="#1565C0", linewidth=2)
+    axes[0].set_title("Training Loss")
+    axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Log-loss")
+    axes[0].grid(alpha=0.3)
+    if len(val_scores) > 0:
+        axes[1].plot(val_scores, color="#C62828", linewidth=2)
+        axes[1].set_title("Validation Accuracy")
+        axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("Accuracy")
+        axes[1].grid(alpha=0.3)
+    else:
+        axes[1].text(0.5, 0.5, "No val data", ha="center", va="center", transform=axes[1].transAxes)
+
+    fig.suptitle(title)
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_numpy_mlp_curve(history, fname, title):
+    epochs = [h["epoch"] for h in history]
+    losses = [h["loss"]  for h in history]
+    val_accs = [h.get("val_acc") for h in history]
+    fig, ax1 = plt.subplots(figsize=(9,4))
+    ax1.plot(epochs, losses, color="#1565C0", linewidth=2, label="Loss")
+    ax1.set_xlabel("Epoch"); ax1.set_ylabel("Loss", color="#1565C0")
+    ax1.tick_params(axis="y", labelcolor="#1565C0")
+    ax1.grid(alpha=0.3)
+    if any(v is not None for v in val_accs):
+        ax2 = ax1.twinx()
+        ax2.plot(epochs, val_accs, color="#C62828", linewidth=2, linestyle="--", label="Val Acc")
+        ax2.set_ylabel("Val Accuracy", color="#C62828")
+        ax2.tick_params(axis="y", labelcolor="#C62828")
+    
+    ax1.set_title(title)
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    ax1.legend(lines1, labels1, loc="upper right")
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_domain_distribution(arts, src_names, fname):
+    fig, axes = plt.subplots(1, len(src_names), figsize=(5*len(src_names), 5))
+    if len(src_names)==1: axes=[axes]
+    colors = plt.cm.Set3(np.linspace(0,1,len(DOMAIN_LABELS)))
+    for ax, src in zip(axes, src_names):
+        src_arts = [a for a in arts if a["source"]==src]
+        dist = Counter(a["pred_domain"] for a in src_arts)
+        labels_ = list(dist.keys()); vals = list(dist.values())
+        wedge_colors = [colors[DOMAIN_LABELS.index(l) if l in DOMAIN_LABELS else 0]
+                        for l in labels_]
+        ax.pie(vals, labels=labels_, autopct="%1.0f%%",
+               colors=wedge_colors, startangle=140)
+        ax.set_title(src)
+    fig.suptitle("MLP — Розподіл тематики по виданнях")
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_sim_heatmap(mat, names, fname):
+    fig, ax = plt.subplots(figsize=(10, 8))
+    im = ax.imshow(mat, cmap="Blues", vmin=0, vmax=1)
+    plt.colorbar(im, ax=ax)
+    ax.set_xticks(range(len(names))); ax.set_yticks(range(len(names)))
+    ax.set_xticklabels([n[:10] for n in names])
+    ax.set_yticklabels([n[:10] for n in names])
+    for i in range(len(names)):
+        for j in range(len(names)):
+            ax.text(j,i,f"{mat[i,j]:.3f}", ha="center", va="center",
+                    color="white" if mat[i,j]>0.6 else "black")
+    
+    title = "Self-Attention Similarity між джерелами"
+    ax.set_title(title)
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+
+def plot_sentiment_bars(agg, src_names, fname):
+    fig, axes = plt.subplots(1,2, figsize=(12,5))
+    x=np.arange(len(src_names)); w=0.25
+    axes[0].bar(x-w, [agg[s]["positive%"] for s in src_names], w,
+                color="#43A047", label="Позитивна", alpha=0.87)
+    axes[0].bar(x,   [agg[s]["neutral%"]  for s in src_names], w,
+                color="#FB8C00", label="Нейтральна", alpha=0.87)
+    axes[0].bar(x+w, [agg[s]["negative%"] for s in src_names], w,
+                color="#E53935", label="Негативна", alpha=0.87)
+    axes[0].set_xticks(x); axes[0].set_xticklabels(src_names, fontsize=9)
+    axes[0].set_title("MLP — Тональність по джерелах")
+    axes[0].set_ylabel("% статей"); axes[0].legend()
+
+    means  = [agg[s]["mean_score"] for s in src_names]
+    colors = ["#43A047" if m>0.05 else "#E53935" if m<-0.05 else "#FB8C00"
+              for m in means]
+    bars = axes[1].bar(src_names, means, color=colors, alpha=0.87, edgecolor="white")
+    axes[1].axhline(0, color="black", lw=0.8, ls="--")
+    for bar,val in zip(bars,means):
+        axes[1].text(bar.get_x()+bar.get_width()/2,
+                     val+(0.01 if val>=0 else -0.02),
+                     f"{val:+.3f}", ha="center")
+    axes[1].set_title("Середній sentiment score (MLP)")
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_sentiment_heatmap(arts, src_names, fname):
+    min_n = min(sum(1 for a in arts if a["source"]==s) for s in src_names)
+    matrix = []
+    for src in src_names:
+        row = [a["sent_proba"].get("positive",0) - a["sent_proba"].get("negative",0)
+               for a in arts if a["source"]==src][:min_n]
+        matrix.append(row)
+    matrix = np.array(matrix)
+    fig, ax = plt.subplots(figsize=(max(8, min_n), 3))
+    im = ax.imshow(matrix, cmap="RdYlGn", vmin=-1, vmax=1, aspect="auto")
+    plt.colorbar(im, ax=ax, label="P(pos)−P(neg)")
+    ax.set_yticks(range(len(src_names))); ax.set_yticklabels(src_names)
+    ax.set_xlabel("Стаття (індекс)")
+    ax.set_title("Теплова карта тональності (MLP probabilities)")
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_autoencoder(ae, codes, arts, src_names, fname):
+    svd2 = TruncatedSVD(n_components=2, random_state=RANDOM_STATE)
+    c2d  = svd2.fit_transform(codes)
+    fig, axes = plt.subplots(1,2, figsize=(13,5))
+    # scatter by source
+    for src in src_names:
+        mask = np.array([a["source"]==src for a in arts])
+        axes[0].scatter(c2d[mask,0], c2d[mask,1], s=60,
+                        label=src, alpha=0.8, edgecolors="white", lw=0.4)
+    axes[0].set_title("Autoencoder латентний простір (2D SVD проекція)")
+    axes[0].set_xlabel("Code-1"); axes[0].set_ylabel("Code-2")
+    axes[0].legend(fontsize=8)
+    # loss curve
+    axes[1].plot(ae.history, color="#7B1FA2", linewidth=2)
+    axes[1].fill_between(range(len(ae.history)), ae.history, alpha=0.15, color="#7B1FA2")
+    axes[1].set_title("Autoencoder — MSE Loss")
+    axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("MSE")
+    axes[1].grid(alpha=0.3)
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+def plot_proba_violin(arts, src_names, classes, fname):
+    fig, axes = plt.subplots(1, len(src_names), figsize=(5*len(src_names), 5),
+                             sharey=True)
+    if len(src_names)==1: axes=[axes]
+    colors_cls = {"negative":"#E53935","neutral":"#FB8C00","positive":"#43A047"}
+    for ax, src in zip(axes, src_names):
+        src_arts = [a for a in arts if a["source"]==src]
+        data = [[a["sent_proba"].get(c,0) for a in src_arts] for c in classes]
+        parts = ax.violinplot(data, positions=range(len(classes)), showmeans=True, showmedians=True)
+        for pc, cls in zip(parts["bodies"], classes):
+            pc.set_facecolor(colors_cls.get(cls,"#90CAF9"))
+            pc.set_alpha(0.7)
+        ax.set_xticks(range(len(classes)))
+        ax.set_xticklabels(classes)
+        ax.set_title(src)
+        ax.set_ylabel("Probability")
+    fig.suptitle("MLP Sentiment Probabilities — Violin Plot")
+    
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, fname)
+    plt.savefig(path)
+    plt.show()
+
+
+
+
 
 
 
